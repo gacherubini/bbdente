@@ -7,6 +7,7 @@ from app.auth import rotas as auth_rotas
 from app.auth.sessao import PrecisaLogar, redirecionar_para_login
 from app.catalogo import rotas as catalogo_rotas
 from app.clinico import api as clinico_api
+from app.clinico import rotas as clinico_rotas
 from app.pacientes import rotas as pacientes_rotas
 
 
@@ -21,6 +22,7 @@ def criar_app() -> FastAPI:
     app.include_router(auth_rotas.router)
     app.include_router(pacientes_rotas.router)
     app.include_router(clinico_api.router)
+    app.include_router(clinico_rotas.router)
     app.include_router(catalogo_rotas.router)
 
     @app.get("/saude")

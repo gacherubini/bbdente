@@ -83,6 +83,11 @@ def test_cada_dente_traz_sua_anatomia(sessao, cenario):
     assert dentes["11"]["anterior"] is True
     assert dentes["16"]["anterior"] is False
     assert dentes["11"]["canais"] == ["CANAL_CENTRAL"]
+    assert dentes["16"]["paredes"]["DIREITA"] == "MESIAL"
+    assert dentes["26"]["paredes"]["DIREITA"] == "DISTAL"
+    assert dentes["16"]["paredes"]["CIMA"] == "VESTIBULAR"
+    assert dentes["46"]["paredes"]["CIMA"] == "LINGUAL"
+    assert len(dentes["16"]["canais_tela"]) == 3
 
 
 def test_lancamento_em_regiao_aparece_no_estado(sessao, cenario):

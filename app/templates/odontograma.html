@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block titulo %}{{ estado.paciente.nome }} — BDDente{% endblock %}
+{% block conteudo %}
+<h1>{{ estado.paciente.nome }}</h1>
+<p class="legenda-topo">
+  {{ estado.paciente.codigo_legado or '—' }} ·
+  <a href="/pacientes">voltar para a lista</a> ·
+  <a href="/anamnese/{{ estado.paciente.id }}">anamnese</a> ·
+  <a href="/prontuario/{{ estado.paciente.id }}.pdf">prontuário em PDF</a>
+</p>
+
+<div class="odonto-area">
+  <div class="odonto-desenho">
+    <div id="odontograma"></div>
+    <div class="legenda-cores">
+      <span><i style="background:var(--planejado)"></i>Planejado</span>
+      <span><i style="background:var(--realizado)"></i>Realizado</span>
+      <span><i style="background:var(--existente)"></i>Já existente</span>
+      <span><i style="background:#fff;border:1px solid #94A3B8"></i>Sem nada</span>
+    </div>
+  </div>
+
+  {% include "_painel_lancamento.html" %}
+</div>
+
+<h2 class="titulo-historico">Histórico</h2>
+<table>
+  <thead>
+    <tr><th>Data</th><th>Dente</th><th>Tratamento</th><th>Situação</th>
+        <th style="text-align:right">Valor</th></tr>
+  </thead>
+  <tbody>
+  {% for item in historico %}
+    <tr>
+      <td>{{ item.data.strftime('%d/%m/%Y') if item.data else '—' }}</td>
+      <td>{{ item.dente or 'boca toda' }}</td>
+      <td>{{ item.procedimento }}</td>
+      <td>{{ 'Realizado' if item.status == 'REALIZADO' else 'Planejado' }}</td>
+      <td style="text-align:right" class="numero">R$ {{ item.valor }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" style="color:var(--texto-fraco)">Nenhum lançamento ainda.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
+
+{% block scripts %}
+<script type="application/json" id="estado-inicial">{{ estado | tojson }}</script>
+<script type="application/json" id="catalogo">{{ catalogo | tojson }}</script>
+<script src="/static/odontograma.js"></script>
+<script src="/static/painel.js"></script>
+{% endblock %}

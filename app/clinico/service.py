@@ -19,9 +19,11 @@ from app.pacientes.service import obter as obter_paciente
 from app.shared.dentes import (
     TODOS_FDI,
     canais_do_dente,
+    canais_em_ordem_de_tela,
     e_anterior,
     e_fdi_valido,
     numero_de_raizes,
+    paredes_do_dente,
 )
 from app.shared.tipos import Escopo, Regiao, StatusLancamento
 
@@ -212,6 +214,8 @@ def estado_do_odontograma(
         str(fdi): {
             "raizes": numero_de_raizes(fdi),
             "canais": [r.value for r in canais_do_dente(fdi)],
+            "canais_tela": [r.value for r in canais_em_ordem_de_tela(fdi)],
+            "paredes": {p.value: r.value for p, r in paredes_do_dente(fdi).items()},
             "anterior": e_anterior(fdi),
             "regioes": {},
             "dente_inteiro": None,

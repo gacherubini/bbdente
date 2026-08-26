@@ -232,3 +232,32 @@ button.primario:disabled { background: var(--roxo-brd); cursor: not-allowed; }
   font-size: 13px;
   margin: 0 0 12px;
 }
+
+/* --- odontograma --- */
+.odonto-area { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+.odonto-desenho {
+  flex: 1 1 640px;
+  min-width: 0;
+  background: #FCFCFD;
+  border: 1px solid #F1F5F9;
+  border-radius: 12px;
+  padding: 16px 10px;
+  overflow-x: auto;
+}
+#odontograma svg { display: block; margin: auto; }
+.regiao { cursor: pointer; }
+.regiao:hover { stroke: var(--roxo); stroke-width: 2; }
+.legenda-cores {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #475569;
+  margin-top: 14px;
+  padding-left: 6px;
+}
+.legenda-cores i {
+  width: 11px; height: 11px; border-radius: 3px;
+  display: inline-block; margin-right: 5px; vertical-align: -1px;
+}
+.titulo-historico { font-size: 16px; margin: 26px 0 8px; }
