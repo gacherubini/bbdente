@@ -222,6 +222,16 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Migrations sao geradas pelo autogenerate do Alembic: nao reformatamos a mao,
+# senao a proxima geracao briga com o lint.
+"alembic/versions/*.py" = ["E501"]
+
+[tool.ruff.lint.flake8-bugbear]
+# `Depends(...)` em default de argumento e o idioma do FastAPI, nao o bug que o
+# B008 procura: a chamada e resolvida uma vez, na montagem da rota.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Form", "fastapi.Query", "fastapi.Path"]
 ```
 
 - [ ] **Step 4: Criar `app/config.py`**
@@ -291,7 +301,9 @@ services:
       POSTGRES_PASSWORD: bddente
       POSTGRES_DB: bddente
     ports:
-      - "5432:5432"
+      # Configuravel: em maquina que ja tem outro Postgres na 5432, defina DB_PORT
+      # no .env e ajuste as URLs junto.
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -326,6 +338,10 @@ ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 COPY pyproject.toml ./
 COPY app ./app
 COPY migracao ./migracao
+# O OPERACAO.md (Task 19) cria o primeiro usuario com
+# `fly ssh console -C "python -m scripts.criar_usuario ..."`. Sem isto aqui,
+# ninguem entra no sistema em producao — nao ha cadastro publico, de proposito.
+COPY scripts ./scripts
 COPY alembic ./alembic
 COPY alembic.ini ./
 RUN pip install -e .
@@ -1243,10 +1259,12 @@ from alembic.config import Config as AlembicConfig
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-URL_TESTE = os.environ.get(
-    "DATABASE_URL_TESTE",
-    "postgresql+psycopg://bddente:bddente@localhost:5432/bddente_teste",
-)
+from app.config import config as config_app
+
+# O env var manda (e o que o CI usa); sem ele, cai no .env local. Nao cravar a
+# porta aqui importa: em maquina que ja roda outro Postgres na 5432, o default
+# apontaria para o banco do outro projeto.
+URL_TESTE = os.environ.get("DATABASE_URL_TESTE", config_app.database_url_teste)
 
 
 @pytest.fixture(scope="session")
@@ -2599,7 +2617,7 @@ def test_campo_com_varios_numeros_e_quebrado():
     ("bruto", "esperado"),
     [
         ("51999990001", ["51999990001"]),
-        ("  9999-0002  ", ["32693124"]),
+        ("  3269-3124  ", ["32693124"]),
         ("", []),
         (None, []),
         ("/", []),
@@ -2614,9 +2632,9 @@ def test_separar_normaliza_e_descarta_vazio(bruto, esperado):
     ("numero", "esperado"),
     [
         ("51999990001", "(51) 99999-0001"),
-        ("51999990002", "(51) 9999-0002"),
-        ("992370295", "99999-0001"),
-        ("32693124", "9999-0002"),
+        ("5199990002", "(51) 9999-0002"),   # 10 digitos: fixo com DDD
+        ("999990001", "99999-0001"),
+        ("99990002", "9999-0002"),
         ("2490143", "2490143"),  # 7 digitos: nao reconhece, devolve cru
     ],
 )
@@ -5047,7 +5065,7 @@ def test_filtro_todos_inclui_quem_nao_vem_ha_anos(sessao, cenario):
 
 
 @pytest.mark.parametrize(
-    "termo", ["amanda", "AMANDA", "haubert", "Rosana Haubert", "6612", "51999990001"]
+    "termo", ["amanda", "AMANDA", "ribeiro", "Ribeiro Nogueira", "6612", "51999990001"]
 )
 def test_busca_por_nome_parcial_telefone_e_codigo(sessao, cenario, termo):
     clinica, *_ = cenario
@@ -5465,7 +5483,9 @@ def cliente_logado(sessao):
 def test_a_tela_lista_o_paciente(cliente_logado):
     resposta = cliente_logado.get("/pacientes?filtro=todos")
     assert resposta.status_code == 200
-    assert "Claudia Moreira Sant'Ana" in resposta.text
+    # O apostrofo sai escapado: o autoescape do Jinja2 esta ligado, e e assim que
+    # tem de ser. Procurar o literal cru testaria a ausencia de protecao contra XSS.
+    assert "Claudia Moreira Sant&#39;Ana" in resposta.text
 
 
 def test_a_busca_e_o_primeiro_campo_da_tela(cliente_logado):
@@ -6019,7 +6039,7 @@ Expected: FAIL com `ImportError: cannot import name 'estado_do_odontograma'`
 Acrescente ao arquivo criado na Task 12:
 
 ```python
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime  # UTC, nao timezone.utc: o ruff exige UP017
 from decimal import Decimal
 
 from app.auth.auditoria import registrar
@@ -6139,7 +6159,7 @@ def excluir_lancamento(
     ).first()
     if lancamento is None:
         return False
-    lancamento.excluido_em = datetime.now(timezone.utc)
+    lancamento.excluido_em = datetime.now(UTC)
     sessao.flush()
     registrar(
         sessao,
@@ -6782,7 +6802,7 @@ def test_toda_regiao_desenhada_carrega_dente_e_regiao_no_elemento():
 
   var LADO = 42;      // aresta do quadrado do dente
   var VAO = 8;        // espaco entre dentes vizinhos
-  var VAO_QUADRANTE = 22;
+  var VAO_LINHA_MEDIA = 22;
   var RAIZ = LADO * 0.42;
   var MIOLO = LADO * 0.30;   // espessura das paredes
   var FAIXA_NUMEROS = 26;
@@ -6860,7 +6880,8 @@ def test_toda_regiao_desenhada_carrega_dente_e_regiao_no_elemento():
   function desenharFileira(ordem, raizParaCima) {
     var partes = "", marcas = [], x = 0;
     for (var k = 0; k < ordem.length; k++) {
-      if (k === 8) x += VAO_QUADRANTE;  // respiro entre os quadrantes
+      // o indice 8 e a linha media: respiro entre as duas metades da arcada
+      if (k === 8) x += VAO_LINHA_MEDIA;
       var fdi = ordem[k];
       partes +=
         '<g transform="translate(' + x + ',0)" class="dente" data-dente="' + fdi + '">' +
@@ -7088,6 +7109,9 @@ Em `app/main.py`, adicione `from app.clinico import rotas as clinico_rotas` e
 
 - [ ] **Step 9: Acrescentar `arvore` em `app/catalogo/service.py`**
 
+> A Task 16 tambem consome esta funcao. Se ela ja tiver sido criada la, confira
+> que bate com o codigo abaixo e pule este step — nao duplique a definicao.
+
 ```python
 from app.catalogo.models import Categoria, Preco, Procedimento
 
@@ -7280,7 +7304,13 @@ def test_o_js_pre_marca_o_sugerido_mas_nao_impede_mudar():
     """A tela sugere, nao impoe: qualquer tratamento pode ir em qualquer regiao."""
     fonte = JS.read_text(encoding="utf-8")
     assert "regioes_sugeridas" in fonte
-    assert "disabled" not in fonte or "modo_repetir" in fonte
+    # O JS so desabilita os botoes e o seletor de tratamento. As caixas de regiao
+    # e os radios de escopo NUNCA sao desabilitados: a sugestao vem marcada, mas
+    # ela pode desmarcar tudo e escolher outra coisa.
+    permitidos = ("painel-lancar", "painel-repetir", "seletor")
+    for linha in fonte.splitlines():
+        if "disabled" in linha:
+            assert any(nome in linha for nome in permitidos), linha
 
 
 def test_o_js_manda_o_lancamento_para_a_api_certa():
@@ -7703,6 +7733,13 @@ git commit -m "feat: painel de lancamento com pre-marcacao e repetir em outro de
 
 ### Task 16: Tela de tratamentos
 
+> **Dependencia fora de ordem.** Esta task consome
+> `catalogo.service.arvore`, que a Task 14 so entrega no Step 9 dela. Se voce
+> executar as tasks fora de ordem ou em paralelo, entregue `arvore` **antes**
+> desta task: sem ela `app/catalogo/rotas.py` nao importa e a suite INTEIRA cai
+> por ImportError, nao so os testes desta task. Se ja tiver sido entregue aqui,
+> pule o Step 9 da Task 14 em vez de duplicar a definicao.
+
 Catálogo agrupado pelas 12 categorias, com criação e edição de tratamento, escopo sugerido e preço por convênio.
 
 **Files:**
@@ -7925,7 +7962,8 @@ from datetime import date
 from decimal import Decimal
 
 from app.auth.auditoria import registrar
-from app.catalogo.models import Preco
+# Procedimento e usado por salvar_procedimento; Categoria, por arvore().
+from app.catalogo.models import Categoria, Preco, Procedimento
 from app.shared.tipos import Escopo, Regiao
 
 
@@ -8061,7 +8099,9 @@ def preco_de(
 ```python
 from decimal import Decimal, InvalidOperation
 
-from fastapi import APIRouter, Depends, Form, Request
+# Sem `Form`: esta rota le o formulario por `await request.form()`, entao
+# importa-lo deixaria um F401 no ruff.
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -8818,7 +8858,7 @@ class _Folha(FPDF):
         self.set_text_color(*CINZA)
         self.cell(
             0, 5,
-            f"Emitido em {date.today().strftime('%d/%m/%Y')} · pagina {self.page_no()}",
+            f"Emitido em {date.today().strftime('%d/%m/%Y')} - pagina {self.page_no()}",
             align="C",
         )
 
@@ -8833,7 +8873,9 @@ class _Folha(FPDF):
         self.set_text_color(*CINZA)
         self.cell(38, 6, rotulo)
         self.set_text_color(15, 23, 42)
-        self.multi_cell(0, 6, valor or "—", new_x="LMARGIN", new_y="NEXT")
+        # Hifen comum, nao travessao: U+2014 nao existe em latin-1 e estes
+        # literais nao passam por _texto().
+        self.multi_cell(0, 6, valor or "-", new_x="LMARGIN", new_y="NEXT")
 
 
 def _texto(valor: object) -> str:
@@ -8863,12 +8905,12 @@ def gerar(
     folha.linha("Codigo", _texto(paciente.codigo_legado))
     folha.linha(
         "Nascimento",
-        paciente.nascimento.strftime("%d/%m/%Y") if paciente.nascimento else "—",
+        paciente.nascimento.strftime("%d/%m/%Y") if paciente.nascimento else "-",
     )
     folha.linha("CPF", _texto(paciente.cpf))
     folha.linha(
         "Telefones",
-        ", ".join(_texto(t.numero) for t in paciente.telefones) or "—",
+        ", ".join(_texto(t.numero) for t in paciente.telefones) or "-",
     )
     if paciente.revisar_motivo:
         folha.linha("A conferir", _texto(", ".join(paciente.revisar_motivo)))
@@ -8891,7 +8933,7 @@ def gerar(
         folha.set_font("helvetica", "", 9)
         folha.set_text_color(15, 23, 42)
         for item in itens:
-            folha.cell(24, 5.5, item["data"].strftime("%d/%m/%Y") if item["data"] else "—")
+            folha.cell(24, 5.5, item["data"].strftime("%d/%m/%Y") if item["data"] else "-")
             folha.cell(18, 5.5, str(item["dente"]) if item["dente"] else "boca")
             folha.cell(86, 5.5, _texto(item["procedimento"])[:52])
             folha.cell(
@@ -9037,7 +9079,8 @@ def test_o_manual_de_operacao_cobre_o_teste_de_restauracao():
 def test_o_env_example_nao_tem_segredo_de_verdade():
     texto = Path(".env.example").read_text(encoding="utf-8")
     assert "SECRET_KEY=" in texto
-    linha = next(l for l in texto.splitlines() if l.startswith("SECRET_KEY="))
+    # `x`, nao `l`: o ruff reprova nome de variavel ambiguo (E741).
+    linha = next(x for x in texto.splitlines() if x.startswith("SECRET_KEY="))
     assert len(linha.split("=", 1)[1]) < 80  # e uma instrucao, nao uma chave
 ```
 
