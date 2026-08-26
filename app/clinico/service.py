@@ -595,3 +595,74 @@ def responder(
         gravadas += 1
     sessao.flush()
     return gravadas
+
+
+def editar_lancamento(
+    sessao: Session,
+    *,
+    clinica_id: int,
+    usuario_id: int,
+    lancamento_id: int,
+    status: StatusLancamento,
+    data: date | None = None,
+    valor: Decimal | None = None,
+    observacao: str | None = None,
+) -> Lancamento:
+    """Corrige um lancamento existente: situacao, data, valor e observacao.
+
+    NAO mexe em dente, regiao nem procedimento. Trocar o alvo de um tratamento
+    nao e correcao, e outro tratamento — para isso existe excluir (logicamente) e
+    lancar de novo, que deixa os dois lados na auditoria.
+
+    A data e uma so por vez: planejado guarda `data_planejada`, realizado guarda
+    `data_realizada`. Guardar as duas seria guardar uma contradicao.
+    """
+    if valor is not None and valor < 0:
+        raise EscopoInvalido("valor nao pode ser negativo")
+
+    lancamento = sessao.scalars(
+        select(Lancamento).where(
+            Lancamento.id == lancamento_id,
+            Lancamento.clinica_id == clinica_id,
+            Lancamento.excluido_em.is_(None),
+        )
+    ).first()
+    if lancamento is None:
+        raise LookupError("lancamento nao encontrado")
+
+    antes = {
+        "status": lancamento.status.value,
+        "valor": str(lancamento.valor),
+        "data": (
+            lancamento.data_realizada or lancamento.data_planejada
+        ).isoformat()
+        if (lancamento.data_realizada or lancamento.data_planejada)
+        else None,
+        "observacao": lancamento.observacao,
+    }
+
+    realizado = status is StatusLancamento.REALIZADO
+    lancamento.status = status
+    lancamento.data_planejada = None if realizado else data
+    lancamento.data_realizada = data if realizado else None
+    if valor is not None:
+        lancamento.valor = valor.quantize(Decimal("0.01"))
+    lancamento.observacao = observacao
+    sessao.flush()
+
+    registrar(
+        sessao,
+        clinica_id=clinica_id,
+        usuario_id=usuario_id,
+        acao="ATUALIZAR",
+        entidade="lancamento",
+        entidade_id=lancamento.id,
+        antes=antes,
+        depois={
+            "status": status.value,
+            "valor": str(lancamento.valor),
+            "data": data.isoformat() if data else None,
+            "observacao": observacao,
+        },
+    )
+    return lancamento

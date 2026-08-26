@@ -8,9 +8,11 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import Usuario
 from app.auth.sessao import usuario_atual
+from app.clinico.models import Odontograma
 from app.clinico.service import (
     EscopoInvalido,
     ItemAtendimento,
+    editar_lancamento,
     estado_de_previa,
     estado_do_odontograma,
     excluir_lancamento,
@@ -83,6 +85,19 @@ class ItemPendente(BaseModel):
             valor=_para_decimal(self.valor),
             observacao=self.observacao,
         )
+
+
+class EdicaoDeLancamento(BaseModel):
+    """O que da para corrigir num lancamento ja feito.
+
+    Dente, regiao e procedimento ficam de fora de proposito: trocar o alvo nao e
+    correcao, e outro tratamento.
+    """
+
+    status: StatusLancamento
+    data: str | None = None
+    valor: str | None = None
+    observacao: str | None = None
 
 
 class Previa(BaseModel):
@@ -273,6 +288,42 @@ def criar_lancamento(
             clinica_id=usuario.clinica_id,
             paciente_id=corpo.paciente_id,
             numero=corpo.numero_odontograma,
+        ),
+    }
+
+
+@router.patch("/lancamento/{lancamento_id}")
+def corrigir_lancamento(
+    lancamento_id: int,
+    corpo: EdicaoDeLancamento,
+    usuario: Usuario = Depends(usuario_atual),
+    sessao: Session = Depends(obter_sessao),
+):
+    try:
+        lancamento = editar_lancamento(
+            sessao,
+            clinica_id=usuario.clinica_id,
+            usuario_id=usuario.id,
+            lancamento_id=lancamento_id,
+            status=corpo.status,
+            data=_para_data(corpo.data),
+            valor=_para_decimal(corpo.valor),
+            observacao=(corpo.observacao or "").strip() or None,
+        )
+    except EscopoInvalido as erro:
+        raise HTTPException(status_code=422, detail=str(erro)) from erro
+    except LookupError as erro:
+        raise HTTPException(status_code=404, detail=str(erro)) from erro
+
+    odontograma = sessao.get(Odontograma, lancamento.odontograma_id)
+    sessao.commit()
+    return {
+        "lancamento_id": lancamento.id,
+        "estado": estado_do_odontograma(
+            sessao,
+            clinica_id=usuario.clinica_id,
+            paciente_id=odontograma.paciente_id,
+            numero=odontograma.numero,
         ),
     }
 

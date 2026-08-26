@@ -201,6 +201,13 @@
     });
   }
 
+  // Quem edita uma linha do historico avisa por aqui: quem sabe desenhar e este
+  // arquivo, e duas maos no mesmo SVG e conflito esperando acontecer.
+  document.addEventListener("bddente:estado", function (evento) {
+    estadoInicial = evento.detail;
+    odontograma.atualizar(evento.detail);
+  });
+
   mostrarAlvo();
   atualizarBotoes();
 })();

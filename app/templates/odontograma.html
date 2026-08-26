@@ -41,19 +41,37 @@
 <table>
   <thead>
     <tr><th>Data</th><th>Dente</th><th>Tratamento</th><th>Situação</th>
-        <th style="text-align:right">Valor</th></tr>
+        <th style="text-align:right">Valor</th><th></th></tr>
   </thead>
   <tbody>
   {% for item in historico %}
-    <tr>
-      <td>{{ item.data.strftime('%d/%m/%Y') if item.data else '—' }}</td>
+    {# Os data-* sao o que o JavaScript le para montar a edicao da linha sem
+       precisar de uma segunda ida ao servidor. #}
+    <tr data-lancamento="{{ item.lancamento_id }}"
+        data-status="{{ item.status }}"
+        data-valor="{{ item.valor }}"
+        data-data="{{ item.data.isoformat() if item.data else '' }}"
+        data-observacao="{{ item.observacao or '' }}">
+      <td class="col-data">{{ item.data.strftime('%d/%m/%Y') if item.data else '—' }}</td>
       <td>{{ item.dente or 'boca toda' }}</td>
-      <td>{{ item.procedimento }}</td>
-      <td>{{ 'Realizado' if item.status == 'REALIZADO' else 'Planejado' }}</td>
-      <td style="text-align:right" class="numero">R$ {{ item.valor | moeda }}</td>
+      <td>
+        {{ item.procedimento }}
+        {% if item.observacao %}
+          <span class="observacao">{{ item.observacao }}</span>
+        {% endif %}
+      </td>
+      <td class="col-situacao">
+        {{ 'Realizado' if item.status == 'REALIZADO' else 'Planejado' }}
+      </td>
+      <td style="text-align:right" class="numero col-valor">
+        R$ {{ item.valor | moeda }}
+      </td>
+      <td style="text-align:right">
+        <button type="button" class="ligacao editar-lancamento">editar</button>
+      </td>
     </tr>
   {% else %}
-    <tr><td colspan="5" style="color:var(--texto-fraco)">Nenhum lançamento ainda.</td></tr>
+    <tr><td colspan="6" style="color:var(--texto-fraco)">Nenhum lançamento ainda.</td></tr>
   {% endfor %}
   </tbody>
 </table>
@@ -68,4 +86,5 @@
 <script src="/static/odontograma.js"></script>
 {% if rascunho %}<script src="/static/rascunho.js"></script>{% endif %}
 <script src="/static/painel.js"></script>
+{% if not rascunho %}<script src="/static/historico.js"></script>{% endif %}
 {% endblock %}
