@@ -94,8 +94,21 @@ def test_a_conferencia_aprova_a_migracao_completa(sessao, tudo_migrado):
 
 
 def test_a_conferencia_reprova_quando_falta_registro(sessao, tudo_migrado):
-    """Este teste e o motivo de a conferencia existir: ela tem de gritar."""
-    algum = sessao.scalars(select(Paciente).limit(1)).one()
+    """Este teste e o motivo de a conferencia existir: ela tem de gritar.
+
+    O paciente e escolhido por TER regiao gravada. Pegar o primeiro da tabela
+    escolhia as vezes alguem cujos lancamentos sao todos de dente inteiro ou de
+    boca toda — o DELETE nao tirava nada, a conferencia aprovava com razao, e o
+    teste falhava sem que houvesse defeito nenhum.
+    """
+    algum = sessao.scalars(
+        select(Paciente)
+        .join(Odontograma, Odontograma.paciente_id == Paciente.id)
+        .join(Lancamento, Lancamento.odontograma_id == Odontograma.id)
+        .join(LancamentoRegiao, LancamentoRegiao.lancamento_id == Lancamento.id)
+        .limit(1)
+    ).first()
+    assert algum is not None, "nenhum paciente com regiao gravada"
     sessao.query(LancamentoRegiao).filter(
         LancamentoRegiao.lancamento_id.in_(
             select(Lancamento.id)
