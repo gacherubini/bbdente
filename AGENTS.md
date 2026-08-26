@@ -163,7 +163,8 @@ Nenhum destes é esquecimento — são escolhas registradas para não virarem su
   sem paciente — criaria dado clínico órfão, que é pior.
 - Um usuário só, sem perfis. A `auditoria` já grava `usuario_id`, então acrescentar
   gente depois não muda o schema.
-- Sem paginação: a busca limita a 100 resultados.
+- Sem paginação: a busca limita a 100 resultados. O corte acontece no banco,
+  **depois** do `ORDER BY` — trocar a ordem da lista troca quais 100 aparecem.
 - Só dentição permanente (32 dentes). Decíduo fica para v2.
 - **Dois cadastros do banco não são pessoas do ARQCLIEN**, e é de propósito:
   `SEM-CODIGO` guarda os 33 lançamentos cujo `CODICLIE` já vinha vazio do Dentalis, e

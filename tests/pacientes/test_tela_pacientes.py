@@ -80,3 +80,50 @@ def test_a_lista_nao_diz_mais_em_aberto(cliente_logado):
     html = cliente_logado.get("/pacientes").text
     assert "Em aberto" not in html
     assert "A fazer" in html
+
+
+# --- escolher a ordem ----------------------------------------------------------
+
+
+def test_a_tela_oferece_as_tres_ordens(cliente_logado):
+    html = cliente_logado.get("/pacientes?filtro=todos").text
+    assert 'name="ordem"' in html
+    for valor in ("alfabetica", "atendimento", "cadastro"):
+        assert f'value="{valor}"' in html
+
+
+def test_a_ordem_escolhida_vem_marcada_ao_reabrir(cliente_logado):
+    html = cliente_logado.get("/pacientes?filtro=todos&ordem=atendimento").text
+    assert 'value="atendimento" selected' in html
+
+
+def test_ordem_inventada_cai_no_padrao_em_vez_de_dar_erro(cliente_logado):
+    """URL editada a mao nao derruba a tela — mesma regra do filtro."""
+    resposta = cliente_logado.get("/pacientes?ordem=por-cor-favorita&filtro=todos")
+    assert resposta.status_code == 200
+    assert 'value="alfabetica" selected' in resposta.text
+
+
+def test_trocar_de_filtro_nao_perde_a_ordem_escolhida(cliente_logado):
+    """Os links de filtro tem de carregar a ordem junto, senao a escolha some no
+    primeiro clique."""
+    html = cliente_logado.get("/pacientes?filtro=todos&ordem=cadastro").text
+    assert "ordem=cadastro" in html
+
+
+def test_buscar_nao_perde_a_ordem_escolhida(cliente_logado):
+    html = cliente_logado.get("/pacientes?filtro=todos&ordem=cadastro").text
+    assert '<input type="hidden" name="ordem" value="cadastro">' in html
+
+
+def test_por_cadastro_a_coluna_mostra_a_data_que_esta_ordenando(cliente_logado):
+    """Ordenar por um campo invisivel deixa a lista sem explicacao na tela."""
+    html = cliente_logado.get("/pacientes?filtro=todos&ordem=cadastro").text
+    assert "Cadastrado em" in html
+    assert "Último atendimento" not in html
+
+
+def test_nas_outras_ordens_a_coluna_continua_a_de_sempre(cliente_logado):
+    html = cliente_logado.get("/pacientes?filtro=todos&ordem=atendimento").text
+    assert "Último atendimento" in html
+    assert "Cadastrado em" not in html

@@ -27,6 +27,31 @@ class Filtro(StrEnum):
     TODOS = "todos"
 
 
+class Ordem(StrEnum):
+    ALFABETICA = "alfabetica"
+    ATENDIMENTO = "atendimento"
+    CADASTRO = "cadastro"
+
+
+def _criterio(ordem: "Ordem"):
+    """O ORDER BY de cada ordem, sempre terminando em `nome`.
+
+    O desempate por nome nao e enfeite: milhares de pacientes dividem a mesma
+    data, e sem ele o Postgres pode devolver essas linhas em ordem diferente a
+    cada consulta — a lista muda de posicao sozinha entre duas recargas da tela.
+
+    `nulls_last` porque nunca atendido nao e o mais recente: no DESC do Postgres
+    o nulo vem primeiro, e a lista abriria com quem nunca pisou na clinica.
+    """
+    match ordem:
+        case Ordem.ATENDIMENTO:
+            return (Paciente.ultimo_atendimento.desc().nulls_last(), Paciente.nome)
+        case Ordem.CADASTRO:
+            return (Paciente.cadastrado_em.desc().nulls_last(), Paciente.nome)
+        case _:
+            return (Paciente.nome,)
+
+
 @dataclass
 class LinhaPaciente:
     id: int
@@ -41,6 +66,9 @@ class LinhaPaciente:
     pendentes: int
     em_aberto: Decimal
     revisar_motivo: list[str] = field(default_factory=list)
+    # So a tela ordenada por cadastro mostra esta data; ela vem sempre para a
+    # linha nao depender de qual ordem pediu a consulta.
+    cadastrado_em: date | None = None
 
 
 def _idade(nascimento: date | None) -> int | None:
@@ -135,6 +163,7 @@ def _montar_linhas(
                 pendentes=pendentes,
                 em_aberto=em_aberto,
                 revisar_motivo=list(paciente.revisar_motivo or []),
+                cadastrado_em=paciente.cadastrado_em,
             )
         )
     return linhas
@@ -146,13 +175,14 @@ def buscar(
     clinica_id: int,
     termo: str = "",
     filtro: Filtro = Filtro.ATIVOS,
+    ordem: Ordem = Ordem.ALFABETICA,
     limite: int | None = LIMITE_PADRAO,
 ) -> list[LinhaPaciente]:
     consulta = (
         select(Paciente)
         .options(selectinload(Paciente.telefones))
         .where(Paciente.clinica_id == clinica_id, Paciente.excluido_em.is_(None))
-        .order_by(Paciente.nome)
+        .order_by(*_criterio(ordem))
     )
 
     termo = (termo or "").strip()

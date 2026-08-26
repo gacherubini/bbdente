@@ -109,7 +109,26 @@ h1 { font-size: 20px; margin: 0 0 4px; }
   background: transparent;
 }
 
-.filtros { display: flex; gap: 7px; flex-wrap: wrap; margin: 12px 0 16px; }
+.filtros { display: flex; gap: 7px; flex-wrap: wrap; margin: 12px 0 16px; align-items: center; }
+
+/* o seletor de ordem fica na mesma linha dos filtros, empurrado para a direita:
+   e uma escolha ocasional, nao um passo do caminho de todo dia */
+.ordenar { display: flex; align-items: center; gap: 7px; margin-left: auto; }
+.ordenar .rotulo { margin: 0; }
+.ordenar select {
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  padding: 6px 9px;
+  font-size: 13px;
+  background: #fff;
+  color: var(--texto);
+  cursor: pointer;
+}
+.ordenar select:focus {
+  outline: 0;
+  border-color: var(--roxo);
+  box-shadow: 0 0 0 3px var(--roxo-cl);
+}
 .filtro {
   font-size: 12px;
   padding: 5px 13px;

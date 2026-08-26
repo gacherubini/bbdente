@@ -7,7 +7,7 @@ from app.auth.models import Clinica
 from app.catalogo.models import Categoria, Convenio, Procedimento
 from app.clinico.models import Lancamento, Odontograma
 from app.pacientes.models import Paciente, PacienteTelefone
-from app.pacientes.service import Filtro, buscar, contagens, obter
+from app.pacientes.service import Filtro, Ordem, buscar, contagens, obter
 from app.shared.tipos import Escopo, StatusLancamento
 
 
@@ -187,3 +187,92 @@ def test_contagens_do_cabecalho(sessao, cenario):
     numeros = contagens(sessao, clinica_id=clinica.id)
     assert numeros["total"] == 3  # o excluido nao conta
     assert numeros["com_pendencia"] == 1
+
+
+# --- ordenacao da lista --------------------------------------------------------
+
+
+@pytest.fixture
+def para_ordenar(sessao):
+    """Tres pacientes com datas cruzadas: quem foi atendido por ultimo NAO e o
+    ultimo cadastrado, para as duas ordens nao poderem passar uma pela outra."""
+    clinica = Clinica(nome="C")
+    sessao.add(clinica)
+    sessao.flush()
+    sessao.add_all(
+        [
+            Paciente(
+                clinica_id=clinica.id, nome="Zilda Antunes",
+                ultimo_atendimento=date(2026, 8, 20), cadastrado_em=date(1998, 4, 2),
+            ),
+            Paciente(
+                clinica_id=clinica.id, nome="Ana Beatriz",
+                ultimo_atendimento=date(2019, 1, 5), cadastrado_em=date(2026, 8, 1),
+            ),
+            Paciente(
+                clinica_id=clinica.id, nome="Marcos Vieira",
+                ultimo_atendimento=None, cadastrado_em=None,
+            ),
+        ]
+    )
+    sessao.flush()
+    return clinica
+
+
+def _nomes(sessao, clinica, **kw) -> list[str]:
+    return [
+        linha.nome
+        for linha in buscar(
+            sessao, clinica_id=clinica.id, filtro=Filtro.TODOS, **kw
+        )
+    ]
+
+
+def test_a_ordem_padrao_continua_alfabetica(sessao, para_ordenar):
+    assert _nomes(sessao, para_ordenar) == [
+        "Ana Beatriz", "Marcos Vieira", "Zilda Antunes",
+    ]
+
+
+def test_por_atendimento_traz_quem_veio_por_ultimo_primeiro(sessao, para_ordenar):
+    assert _nomes(sessao, para_ordenar, ordem=Ordem.ATENDIMENTO) == [
+        "Zilda Antunes", "Ana Beatriz", "Marcos Vieira",
+    ]
+
+
+def test_por_cadastro_traz_o_cadastro_mais_novo_primeiro(sessao, para_ordenar):
+    assert _nomes(sessao, para_ordenar, ordem=Ordem.CADASTRO) == [
+        "Ana Beatriz", "Zilda Antunes", "Marcos Vieira",
+    ]
+
+
+def test_quem_nao_tem_data_fica_no_fim_e_nao_no_topo(sessao, para_ordenar):
+    """Nunca atendido nao e 'o mais recente' — e o que o DESC faria com o nulo."""
+    for ordem in (Ordem.ATENDIMENTO, Ordem.CADASTRO):
+        assert _nomes(sessao, para_ordenar, ordem=ordem)[-1] == "Marcos Vieira"
+
+
+def test_data_repetida_desempata_por_nome(sessao, para_ordenar):
+    """Sem desempate, a ordem entre datas iguais e indefinida no Postgres e a
+    lista muda de posicao a cada recarga da tela."""
+    mesmo_dia = date(2026, 8, 20)
+    sessao.add_all(
+        [
+            Paciente(clinica_id=para_ordenar.id, nome="Bruno Dias",
+                     ultimo_atendimento=mesmo_dia),
+            Paciente(clinica_id=para_ordenar.id, nome="Alice Ramos",
+                     ultimo_atendimento=mesmo_dia),
+        ]
+    )
+    sessao.flush()
+    assert _nomes(sessao, para_ordenar, ordem=Ordem.ATENDIMENTO)[:3] == [
+        "Alice Ramos", "Bruno Dias", "Zilda Antunes",
+    ]
+
+
+def test_o_limite_corta_pelas_mais_recentes_e_nao_pelo_alfabeto(sessao, para_ordenar):
+    """A busca corta em 100; com ordem por data o corte tem de ser no ORDER BY, no
+    banco. Cortar antes e reordenar depois traria os primeiros do alfabeto."""
+    assert _nomes(sessao, para_ordenar, ordem=Ordem.ATENDIMENTO, limite=1) == [
+        "Zilda Antunes"
+    ]

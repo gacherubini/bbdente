@@ -13,6 +13,7 @@ from app.catalogo.service import convenios
 from app.pacientes.service import (
     Endereco,
     Filtro,
+    Ordem,
     atualizar,
     buscar,
     contagens,
@@ -62,6 +63,7 @@ def listar(
     request: Request,
     q: str = Query(""),
     filtro: str = Query(Filtro.ATIVOS.value),
+    ordem: str = Query(Ordem.ALFABETICA.value),
     usuario: Usuario = Depends(usuario_atual),
     sessao: Session = Depends(obter_sessao),
 ):
@@ -69,6 +71,10 @@ def listar(
         escolhido = Filtro(filtro)
     except ValueError:
         escolhido = Filtro.ATIVOS  # filtro inventado na URL nao derruba a tela
+    try:
+        ordenacao = Ordem(ordem)
+    except ValueError:
+        ordenacao = Ordem.ALFABETICA
 
     return templates.TemplateResponse(
         request,
@@ -78,8 +84,14 @@ def listar(
             "termo": q,
             "filtro": escolhido,
             "filtros": list(Filtro),
+            "ordem": ordenacao,
+            "ordens": list(Ordem),
             "linhas": buscar(
-                sessao, clinica_id=usuario.clinica_id, termo=q, filtro=escolhido
+                sessao,
+                clinica_id=usuario.clinica_id,
+                termo=q,
+                filtro=escolhido,
+                ordem=ordenacao,
             ),
             "numeros": contagens(sessao, clinica_id=usuario.clinica_id),
         },

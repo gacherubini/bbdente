@@ -3,7 +3,12 @@
   'ativos': 'Ativos', 'com_pendencia': 'Com pendência',
   'em_aberto': 'Com tratamento a fazer', 'todos': 'Todos'
 } %}
+{% set rotulos_ordem = {
+  'alfabetica': 'Nome (A–Z)', 'atendimento': 'Atendidos por último',
+  'cadastro': 'Cadastrados por último'
+} %}
 {% set link_novo = '/pacientes/novo?nome=' ~ termo|urlencode if termo else '/pacientes/novo' %}
+{% set por_cadastro = ordem.value == 'cadastro' %}
 {% block titulo %}Pacientes — BDDente{% endblock %}
 {% block conteudo %}
 <div class="topo-lista">
@@ -23,15 +28,31 @@
   <input name="q" value="{{ termo }}" autofocus
          placeholder="Buscar por nome, telefone ou código…">
   <input type="hidden" name="filtro" value="{{ filtro.value }}">
+  <input type="hidden" name="ordem" value="{{ ordem.value }}">
 </form>
 
 <div class="filtros">
+  {# Os links de filtro levam a ordem junto: sem isso, escolher a ordem e clicar
+     numa aba devolveria a lista para o alfabeto sem a pessoa ter pedido. #}
   {% for f in filtros %}
     <a class="filtro {{ 'ativo' if f == filtro }}"
-       href="/pacientes?filtro={{ f.value }}{% if termo %}&q={{ termo }}{% endif %}">
+       href="/pacientes?filtro={{ f.value }}&ordem={{ ordem.value }}{% if termo %}&q={{ termo }}{% endif %}">
       {{ rotulos[f.value] }}
     </a>
   {% endfor %}
+
+  <form class="ordenar" method="get" action="/pacientes">
+    <input type="hidden" name="filtro" value="{{ filtro.value }}">
+    {% if termo %}<input type="hidden" name="q" value="{{ termo }}">{% endif %}
+    <label class="rotulo" for="ordem">Ordenar por</label>
+    <select id="ordem" name="ordem" onchange="this.form.submit()">
+      {% for o in ordens %}
+        <option value="{{ o.value }}" {{ 'selected' if o == ordem }}>{{ rotulos_ordem[o.value] }}</option>
+      {% endfor %}
+    </select>
+    {# Quem estiver sem JavaScript ainda consegue trocar a ordem. #}
+    <noscript><button type="submit" class="secundario">Aplicar</button></noscript>
+  </form>
 </div>
 
 {% if not linhas and termo %}
@@ -43,7 +64,9 @@
 <table>
   <thead>
     <tr>
-      <th>Paciente</th><th>Idade</th><th>Telefone</th><th>Último atendimento</th>
+      <th>Paciente</th><th>Idade</th><th>Telefone</th>
+      {# Ordenar por um campo invisivel deixa a lista sem explicacao na tela. #}
+      <th>{{ 'Cadastrado em' if por_cadastro else 'Último atendimento' }}</th>
       <th>Convênio</th><th style="text-align:center">Pendentes</th>
       {# 'A fazer' e o valor do que foi PLANEJADO e ainda nao foi feito. Nao
          confundir com o 'A receber' do financeiro, que e o que foi feito e
@@ -64,10 +87,15 @@
       <td>{% if linha.telefone %}{{ linha.telefone }}
             {% if linha.telefone_suspeito %}<span class="aviso">curto</span>{% endif %}
           {% else %}—{% endif %}</td>
+      {% if por_cadastro %}
+      <td>{% if linha.cadastrado_em %}{{ linha.cadastrado_em.strftime('%d/%m/%Y') }}
+          {% else %}—{% endif %}</td>
+      {% else %}
       <td>{% if linha.ultimo_atendimento %}
             {{ linha.ultimo_atendimento.strftime('%d/%m/%Y') }}
             {% if linha.data_suspeita %}<span class="aviso">data inválida</span>{% endif %}
           {% else %}—{% endif %}</td>
+      {% endif %}
       <td>{{ linha.convenio or 'Particular' }}</td>
       <td style="text-align:center">
         <span class="selo {{ 'pendente' if linha.pendentes else 'zero' }}">{{ linha.pendentes }}</span>
