@@ -69,7 +69,7 @@
         <span class="selo {{ 'pendente' if linha.pendentes else 'zero' }}">{{ linha.pendentes }}</span>
       </td>
       <td style="text-align:right" class="numero">
-        {% if linha.em_aberto > 0 %}R$ {{ "%.2f"|format(linha.em_aberto) }}{% else %}—{% endif %}
+        {% if linha.em_aberto > 0 %}R$ {{ linha.em_aberto | moeda }}{% else %}—{% endif %}
       </td>
     </tr>
   {% else %}

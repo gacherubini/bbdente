@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.clinico.service import anamnese, historico
 from app.pacientes.service import obter as obter_paciente
+from app.shared.formato import moeda
 
 ROXO = (91, 33, 182)
 CINZA = (100, 116, 139)
@@ -120,7 +121,7 @@ def gerar(
                 26, 5.5,
                 "Realizado" if item["status"] == "REALIZADO" else "Planejado",
             )
-            folha.cell(24, 5.5, f"R$ {item['valor']}")
+            folha.cell(24, 5.5, f"R$ {moeda(item['valor'])}")
             folha.ln(5.5)
 
     respostas = [

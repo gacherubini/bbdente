@@ -572,3 +572,24 @@ a.botao-secundario:hover { background: var(--roxo-cl); }
 }
 .janela-novo button.primario { width: 100%; margin-top: 16px; }
 .parecidos li button.nome-botao { border-color: #FCD34D; }
+
+/* --- preco por convenio na tela de tratamentos --- */
+.mais-precos { display: inline-block; margin-left: 8px; }
+.mais-precos summary {
+  cursor: pointer;
+  font-size: 11.5px;
+  color: var(--roxo-esc);
+  list-style: none;
+}
+.mais-precos summary::-webkit-details-marker { display: none; }
+.mais-precos ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  font-size: 12.5px;
+  text-align: left;
+  min-width: 190px;
+}
+.mais-precos li { display: flex; justify-content: space-between; gap: 12px; }

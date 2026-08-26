@@ -8,7 +8,13 @@ from sqlalchemy.orm import Session
 from app.auth.models import Usuario
 from app.auth.sessao import usuario_atual
 from app.catalogo.models import Categoria, Convenio
-from app.catalogo.service import CodigoRepetido, arvore, definir_preco, salvar_procedimento
+from app.catalogo.service import (
+    CodigoRepetido,
+    arvore,
+    definir_preco,
+    precos_por_procedimento,
+    salvar_procedimento,
+)
 from app.shared.db import obter_sessao
 from app.shared.tipos import Escopo, Regiao
 from app.templates import templates
@@ -20,6 +26,9 @@ def _contexto(sessao: Session, clinica_id: int, erro: str | None = None) -> dict
     return {
         "aba": "tratamentos",
         "catalogo": arvore(sessao, clinica_id=clinica_id),
+        # Fora da arvore de proposito: ela vira JSON no painel do odontograma,
+        # e Decimal nao atravessa `tojson`.
+        "precos": precos_por_procedimento(sessao, clinica_id=clinica_id),
         "categorias": list(
             sessao.scalars(
                 select(Categoria)

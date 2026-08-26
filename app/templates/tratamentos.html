@@ -12,9 +12,11 @@
     {% for categoria in catalogo %}
       <h2 class="titulo-historico">{{ categoria.nome }}</h2>
       <table>
-        <thead><tr><th>Código</th><th>Tratamento</th><th>Onde costuma ser</th></tr></thead>
+        <thead><tr><th>Código</th><th>Tratamento</th><th>Onde costuma ser</th>
+            <th style="text-align:right">Preço</th></tr></thead>
         <tbody>
         {% for procedimento in categoria.procedimentos %}
+          {% set tabela = precos.get(procedimento.id, []) %}
           <tr>
             <td class="codigo">{{ procedimento.codigo }}</td>
             <td class="nome">{{ procedimento.nome }}</td>
@@ -22,6 +24,25 @@
               {% if procedimento.escopo_sugerido == 'BOCA' %}Boca toda
               {% elif procedimento.escopo_sugerido == 'DENTE' %}Dente inteiro
               {% else %}{{ procedimento.regioes_sugeridas | join(', ') | lower or 'regiões' }}
+              {% endif %}
+            </td>
+            <td style="text-align:right">
+              {# Sem tabela de preco nao e o mesmo que de graca: R$ 0,00 mentiria. #}
+              {% if not tabela %}
+                <span style="color:var(--texto-fraco)">—</span>
+              {% else %}
+                <span class="numero">R$ {{ tabela[0].valor | moeda }}</span>
+                {% if tabela | length > 1 %}
+                  <details class="mais-precos">
+                    <summary>+{{ tabela | length - 1 }} convênio{{ 's' if tabela | length > 2 }}</summary>
+                    <ul>
+                      {% for linha in tabela[1:] %}
+                        <li><span>{{ linha.convenio }}</span>
+                            <span class="numero">R$ {{ linha.valor | moeda }}</span></li>
+                      {% endfor %}
+                    </ul>
+                  </details>
+                {% endif %}
               {% endif %}
             </td>
           </tr>

@@ -85,6 +85,52 @@ def arvore(sessao: Session, *, clinica_id: int) -> list[dict]:
     ]
 
 
+def precos_por_procedimento(
+    sessao: Session, *, clinica_id: int, em: date | None = None
+) -> dict[int, list[dict]]:
+    """O preco vigente de cada procedimento em cada convenio, numa consulta so.
+
+    Sao 612 pares procedimento x convenio no banco real: perguntar preco por
+    linha da tela seriam 612 idas ao banco para desenhar uma pagina.
+
+    `DISTINCT ON` do Postgres resolve "a linha mais recente de cada par" sem
+    subconsulta: a ordenacao comeca pelo par e termina pela vigencia, entao a
+    primeira linha de cada grupo e a que vale.
+
+    Procedimento sem tabela de preco simplesmente nao aparece no resultado — quem
+    chama decide como dizer isso na tela. 'Sem tabela' nao e 'de graca'.
+    """
+    quando = em or date.today()
+    linhas = sessao.execute(
+        select(Preco.procedimento_id, Convenio.nome, Convenio.codigo, Preco.valor)
+        .join(Procedimento, Preco.procedimento_id == Procedimento.id)
+        .join(Convenio, Preco.convenio_id == Convenio.id)
+        .where(
+            Procedimento.clinica_id == clinica_id,
+            Convenio.clinica_id == clinica_id,
+            Preco.vigente_desde <= quando,
+        )
+        .distinct(Preco.procedimento_id, Preco.convenio_id)
+        .order_by(
+            Preco.procedimento_id,
+            Preco.convenio_id,
+            Preco.vigente_desde.desc(),
+            Preco.id.desc(),
+        )
+    ).all()
+
+    tabela: dict[int, list[dict]] = {}
+    for procedimento_id, convenio, codigo, valor in linhas:
+        tabela.setdefault(procedimento_id, []).append(
+            {"convenio": convenio, "codigo": codigo, "valor": valor}
+        )
+    # O particular e o codigo '001' e cai naturalmente em primeiro na ordem do
+    # codigo, que e a mesma ordem do select de convenios da tela.
+    for lista in tabela.values():
+        lista.sort(key=lambda linha: (linha["codigo"], linha["convenio"]))
+    return tabela
+
+
 class CodigoRepetido(ValueError):
     """Ja existe outro tratamento com este codigo nesta clinica."""
 

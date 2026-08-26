@@ -49,7 +49,7 @@
       <td>{{ item.dente or 'boca toda' }}</td>
       <td>{{ item.procedimento }}</td>
       <td>{{ 'Realizado' if item.status == 'REALIZADO' else 'Planejado' }}</td>
-      <td style="text-align:right" class="numero">R$ {{ item.valor }}</td>
+      <td style="text-align:right" class="numero">R$ {{ item.valor | moeda }}</td>
     </tr>
   {% else %}
     <tr><td colspan="5" style="color:var(--texto-fraco)">Nenhum lançamento ainda.</td></tr>
