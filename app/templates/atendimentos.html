@@ -33,11 +33,17 @@
     <table>
       <thead>
         <tr><th>Dente</th><th>Tratamento</th>
-            <th style="text-align:right">Valor</th></tr>
+            <th style="text-align:right">Valor</th>
+            <th class="col-acoes"><span class="oculto-visualmente">Ações</span></th></tr>
       </thead>
       <tbody>
+      {# Os `data-*` sao o que o atendimentos.js le para montar a frase da
+         confirmacao. O dente vem cru (numero FDI ou vazio) e o texto "boca toda"
+         quem escreve e o JS — o servidor nao manda frase pronta para o JS. #}
       {% for item in grupo.itens %}
-        <tr>
+        <tr data-lancamento="{{ item.lancamento_id }}"
+            data-dente="{{ item.dente or '' }}"
+            data-procedimento="{{ item.procedimento }}">
           <td>{{ item.dente or 'boca toda' }}</td>
           <td>
             {{ item.procedimento }}
@@ -46,6 +52,11 @@
             {% endif %}
           </td>
           <td style="text-align:right" class="numero">R$ {{ item.valor | moeda }}</td>
+          <td class="col-acoes">
+            <button type="button" class="excluir-lancamento"
+                    title="Excluir este tratamento"
+                    aria-label="Excluir {{ item.procedimento }}">×</button>
+          </td>
         </tr>
       {% endfor %}
       </tbody>
@@ -103,4 +114,8 @@
   <p class="nota-bloco">Ainda não foi feito — não entra na produção do dia.</p>
   {{ lista(planejados, 'planejado') }}
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ estatico('atendimentos.js') }}"></script>
 {% endblock %}

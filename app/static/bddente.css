@@ -690,6 +690,45 @@ button.ligacao:hover { color: var(--roxo); }
   font-size: 12.5px;
 }
 
+/* --- excluir tratamento na tela do dia --- */
+/* Discreto, mas SEMPRE visivel. Esconder ate o hover deixava a acao destrutiva
+   fora do caminho de quem so confere o dia — e tambem fora do alcance de quem
+   procura por ela: botao que so aparece no hover e botao que ninguem acha, e no
+   toque nao ha hover nenhum. Fica em cinza fraco e so ganha vermelho debaixo do
+   cursor. */
+.col-acoes { width: 34px; text-align: right; }
+button.excluir-lancamento {
+  background: none;
+  border: 0;
+  color: var(--texto-fraco);
+  font-size: 17px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: .45;
+  transition: opacity .12s, color .12s, background .12s;
+}
+tr:hover > td > button.excluir-lancamento { opacity: 1; }
+button.excluir-lancamento:hover,
+button.excluir-lancamento:focus-visible {
+  opacity: 1;
+  color: #B91C1C;
+  background: #FEE2E2;
+}
+.linha-editando td > .acoes-linha { display: inline-flex; margin-left: 12px; }
+
+/* Some do desenho mas nao do leitor de tela: o cabecalho da coluna do "x" nao
+   tem texto visivel, e uma coluna sem nome nenhum e uma tabela pior. */
+.oculto-visualmente {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 /* --- financeiro --- */
 .seletor-periodo { display: flex; align-items: flex-end; gap: 10px; }
 .seletor-periodo .rotulo { margin: 0 0 4px; }
