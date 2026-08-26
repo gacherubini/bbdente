@@ -161,3 +161,33 @@ Dentalis, não no banco. Estão perdidos e não migram.
   qualquer coisa dentro de `migracao/`.
 - [`../migracao/AGENTS.md`](../migracao/AGENTS.md) — como o pacote é organizado
 - [`superpowers/specs/2026-08-25-bddente-mvp-design.md`](superpowers/specs/2026-08-25-bddente-mvp-design.md) — §6 descreve a migração
+
+
+## Financeiro: as 28.244 parcelas do `ARQFAT`
+
+Etapa acrescentada em 26/08/2026. É o livro-caixa do consultório — o MVP tinha
+migrado o prontuário e deixado o dinheiro para trás.
+
+| Conferência | Esperado |
+|---|---|
+| Parcelas | 28.244 |
+| Soma cobrada (`ORIGINAL`) | R$ 5.808.797,26 |
+| Soma paga (`VALORPAG`) | R$ 2.378.315,73 |
+| Parcelas sem pagamento | 7.546 |
+| Pacientes distintos | 5.340 (zero órfãos) |
+| Marcadas para revisar | 5 (ano 0200, 0202, 0203, 9200) |
+| Substituídas por outra do mesmo carnê | 5.163 |
+
+**Por que confiar no `VALORPAG`:** a soma dele bate com a dos lançamentos
+realizados já migrados (R$ 2.374.762,13) — R$ 3.553,60 de diferença em 30 anos,
+vindo de duas fontes independentes.
+
+**O carnê.** O Dentalis regravava o saldo restante a cada pagamento, com o mesmo
+vencimento. Somar todas as linhas inflava a dívida em R$ 1.392.888,31 (41%). As
+linhas superadas entram com o valor como veio, marcadas em `parcela.substituida`,
+e ficam fora da soma da dívida — nunca fora da soma do dinheiro recebido. Detalhe
+em [`AGENTS.md`](../AGENTS.md) e na spec do financeiro.
+
+**O que NÃO foi migrado, e por quê:** `ARQPAG` (31 linhas de contas a pagar a
+fornecedor) e `ARQPRO` (laboratório de prótese). São outro assunto, e o volume não
+justifica agora.

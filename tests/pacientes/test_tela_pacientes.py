@@ -58,7 +58,7 @@ def test_a_tela_marca_a_aba_pacientes_como_ativa(cliente_logado):
 
 def test_os_quatro_filtros_aparecem(cliente_logado):
     html = cliente_logado.get("/pacientes").text
-    for rotulo in ("Ativos", "Com pendência", "Em aberto", "Todos"):
+    for rotulo in ("Ativos", "Com pendência", "Com tratamento a fazer", "Todos"):
         assert rotulo in html
 
 
@@ -70,3 +70,13 @@ def test_cada_linha_leva_para_o_odontograma(cliente_logado, sessao):
 
 def test_filtro_invalido_cai_no_padrao_em_vez_de_dar_erro(cliente_logado):
     assert cliente_logado.get("/pacientes?filtro=inventado").status_code == 200
+
+
+def test_a_lista_nao_diz_mais_em_aberto(cliente_logado):
+    """Depois que o financeiro chegou, existem DOIS numeros diferentes: o
+    tratamento planejado e nao feito ('a fazer') e o tratamento feito e nao pago
+    ('a receber'). Chamar os dois de 'em aberto' faria a Dra. Katia ler um pelo
+    outro."""
+    html = cliente_logado.get("/pacientes").text
+    assert "Em aberto" not in html
+    assert "A fazer" in html

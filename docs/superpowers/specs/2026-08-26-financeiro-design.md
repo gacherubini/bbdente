@@ -74,6 +74,33 @@ planejados* — serviço que ainda nem foi feito. Dívida de tratamento feito é
 coisa. Depois desta migração passam a existir dois números diferentes, e eles
 **precisam de nomes diferentes na tela**, senão a Dra. Kátia lê um pelo outro.
 
+### 2.4 O carnê: descoberto na implementação, muda R$ 1,4 milhão
+
+Isto não estava no plano — apareceu ao abrir a lista de cobrança com dados reais.
+Uma paciente com **sete parcelas do mesmo vencimento**, cobrado caindo 1.200,
+1.050, 900, 750, 600, 450, 300, e R$ 150 pagos em cada uma.
+
+O Dentalis não tinha tabela de carnê. Quando o paciente pagava, ele **regravava o
+saldo restante** numa linha nova. Aquilo não são sete dívidas de R$ 5.250: é uma
+dívida de R$ 1.200 paga em sete vezes, com R$ 150 em aberto.
+
+São **3.014 grupos, 8.177 linhas**. Somando todas, a mesma dívida era contada até
+sete vezes:
+
+```
+a receber somando toda linha : R$ 3.430.481,53
+a receber tratando o carnê   : R$ 2.037.593,22
+diferença                    : R$ 1.392.888,31   (41%)
+```
+
+As 5.163 linhas superadas entram com o valor como veio e ficam marcadas em
+`parcela.substituida`. A soma da dívida pula as marcadas; a do **dinheiro recebido
+não pula nada**, porque cada degrau registra um pagamento que aconteceu.
+
+A regra de detecção é estreita de propósito: mesmo paciente, mesmo vencimento,
+valores estritamente decrescentes, e cada degrau igual ao valor pago naquela
+linha. Grupo com empate de valor fica de fora.
+
 ---
 
 ## 3. Decisões
@@ -85,6 +112,7 @@ coisa. Depois desta migração passam a existir dois números diferentes, e eles
 | Parcela liga em lançamento? | **Não** | O Dentalis nunca ligou (`ARQDENTE.DTPAGTO` está vazio nas 44.812 linhas). Inventar o vínculo seria fabricar dado clínico-financeiro. |
 | Biblioteca de gráfico? | **Nenhuma. SVG na mão** | Mesma escolha do odontograma. Zero dependência nova, funciona sem internet, e são barras, linhas e pizza — não é D3. |
 | Preço muda como? | **Linha nova em `preco`** | `vigente_desde` já existe. Editar preço não apaga o preço antigo: relatório de 2019 continua lendo o preço de 2019. |
+| Carnê do Dentalis | **Linha superada entra marcada, fora da soma da dívida** | Somar todas contava a mesma dívida até sete vezes. Ver §2.4. |
 | Data suspeita | **Entra marcada** | 21 linhas com data impossível (ano 0200, 9200). Preservar e marcar, como no resto da migração. |
 | Escopo do gráfico | **Desde 1995** | Antes disso é Cruzeiro/URV: somar com Real dá número sem sentido. |
 

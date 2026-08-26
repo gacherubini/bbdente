@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% set rotulos = {
   'ativos': 'Ativos', 'com_pendencia': 'Com pendência',
-  'em_aberto': 'Em aberto no financeiro', 'todos': 'Todos'
+  'em_aberto': 'Com tratamento a fazer', 'todos': 'Todos'
 } %}
 {% set link_novo = '/pacientes/novo?nome=' ~ termo|urlencode if termo else '/pacientes/novo' %}
 {% block titulo %}Pacientes — BDDente{% endblock %}
@@ -45,7 +45,11 @@
     <tr>
       <th>Paciente</th><th>Idade</th><th>Telefone</th><th>Último atendimento</th>
       <th>Convênio</th><th style="text-align:center">Pendentes</th>
-      <th style="text-align:right">Em aberto</th>
+      {# 'A fazer' e o valor do que foi PLANEJADO e ainda nao foi feito. Nao
+         confundir com o 'A receber' do financeiro, que e o que foi feito e
+         nao foi pago — sao dois numeros diferentes, e ler um pelo outro
+         daria uma ideia errada do consultorio. #}
+      <th style="text-align:right">A fazer</th>
     </tr>
   </thead>
   <tbody>

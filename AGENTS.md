@@ -58,6 +58,21 @@ concordam nos 32 dentes (`tests/shared/test_geometria_dente.py`):
 garante: que as duas fontes concordam entre si — não que a convenção do Dentalis fosse
 a clinicamente correta. Essa confirmação só a dentista pode dar.
 
+**O carnê do Dentalis.** Ele não tinha tabela de carnê: quando o paciente pagava
+uma parcela, o sistema **regravava o saldo restante** numa linha nova, com o mesmo
+vencimento. Sete linhas caindo 1.200, 1.050, 900… com R$ 150 pagos em cada não são
+sete dívidas de R$ 5.250 — são uma dívida de R$ 1.200 paga em sete vezes.
+
+Somar todas as linhas inflava o "a receber" em **R$ 1.392.888,31 (41%)**. As 5.163
+linhas já superadas entram no banco com o valor como veio e ficam marcadas em
+`parcela.substituida`; a soma da dívida pula as marcadas, e a do dinheiro recebido
+**não** — cada degrau registra um pagamento que aconteceu de verdade.
+
+Se mexer em `migracao/financeiro.py`, a regra de detecção é deliberadamente
+estreita e tem de continuar assim: mesmo paciente, mesmo vencimento, valores
+estritamente decrescentes e cada degrau igual ao valor pago naquela linha. Alargar
+isso apaga dívida de verdade.
+
 **A regra de espelhamento não pode vazar para o JavaScript.** `odontograma.js` recebe
 `paredes` e `canais_tela` prontos do servidor e não sabe anatomia. Há um teste que
 falha se o JS voltar a calcular isso sozinho.
@@ -117,6 +132,7 @@ O `ruff` deste repo usa `select = ["E", "F", "I", "UP", "B"]`. Consequências:
 | mexer no atendimento sem paciente | `app/static/rascunho.js` e `app/clinico/api.py` |
 | mexer em lançamento | `app/clinico/service.py` (`lancar`, `estado_do_odontograma`) |
 | mexer na busca de paciente | `app/pacientes/service.py` (`buscar`) |
+| mexer no financeiro | `app/financeiro/service.py`, depois `app/static/graficos.js` |
 | mexer na migração | `migracao/AGENTS.md` |
 | entender uma decisão | o plano em `docs/superpowers/plans/` explica o *porquê* de cada task |
 
@@ -149,5 +165,15 @@ Nenhum destes é esquecimento — são escolhas registradas para não virarem su
   `1104/OR` é alguém que só existia no arquivo de orçamento mas tinha anamnese
   respondida. Ambos entram marcados em `revisar_motivo`. Por isso `paciente` tem
   5.561 linhas para 5.559 cadastros vindos do ARQCLIEN.
+- **Forma de pagamento não existe no histórico.** 28.234 das 28.244 parcelas do
+  Dentalis têm `CODTPAG = '00'` (vazio). Só faz sentido para o que for registrado
+  daqui para frente — por isso não há gráfico de "recebido por forma de pagamento".
+- **A leitura do carnê espera confirmação da Dra. Kátia.** São R$ 1,4 milhão de
+  diferença no que a clínica acha que tem a receber. Nenhuma linha foi perdida: se
+  ela disser que são cobranças separadas, um `UPDATE parcela SET substituida=false`
+  desfaz.
+- **O "a fazer" da lista de pacientes e o "a receber" do financeiro são números
+  diferentes.** O primeiro é tratamento planejado e não feito; o segundo é
+  tratamento feito e não pago. Nunca chame os dois de "em aberto".
 - **`condicao.dente` pode ser nulo**: 5.522 dos 9.629 ícones do Dentalis (`OICOn`) são
   da boca inteira, não de um dente. Entram guardados, mas não são desenhados.

@@ -106,6 +106,27 @@ depois disso crie o usuário da dentista:
 Repetir a migração é seguro: cada etapa é idempotente e nada é gravado se a
 conferência reprovar.
 
+### Levar só uma etapa nova para produção
+
+Quando uma etapa é acrescentada depois que produção já está no ar — foi o caso do
+financeiro, em 26/08/2026 — não é preciso recarregar o banco inteiro. Rode a etapa
+localmente contra o Postgres do `docker compose`, confira, e leve **só a tabela
+nova** pelo túnel:
+
+    .venv/bin/alembic upgrade head        # local
+    .venv/bin/python -m migracao          # idempotente; refaz só o que falta
+
+    # a migration primeiro, pelo túnel (ver "Migration aditiva", acima)
+    fly proxy 5433:5432 -a bddente-db
+    DATABASE_URL="postgres://postgres:<senha>@localhost:5433/bddente"         .venv/bin/alembic upgrade head
+
+    # depois a tabela, só ela
+    .venv/bin/pg_dump --data-only --table=parcela         "postgresql://bddente:bddente@localhost:5432/bddente" > parcela.sql
+    psql "postgres://postgres:<senha>@localhost:5433/bddente" < parcela.sql
+
+Confira a contagem no destino antes de considerar feito. Para o financeiro:
+28.244 parcelas, soma cobrada R$ 5.808.797,26, soma paga R$ 2.378.315,73.
+
 ## Requisitos que o provedor precisa cumprir
 
 Dado de saúde é dado pessoal sensível pela LGPD — a categoria de maior proteção.
