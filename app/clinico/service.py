@@ -14,7 +14,14 @@ from sqlalchemy.orm import Session
 
 from app.auth.auditoria import registrar
 from app.catalogo.models import Procedimento
-from app.clinico.models import Condicao, Lancamento, LancamentoRegiao, Odontograma
+from app.clinico.models import (
+    Condicao,
+    Lancamento,
+    LancamentoRegiao,
+    Odontograma,
+    PerguntaAnamnese,
+    RespostaAnamnese,
+)
 from app.pacientes.service import obter as obter_paciente
 from app.shared.dentes import (
     TODOS_FDI,
@@ -338,3 +345,83 @@ def lancamentos_do_paciente(
 ) -> list[dict]:
     """Fronteira que o futuro modulo financeiro vai consumir."""
     return historico(sessao, clinica_id=clinica_id, paciente_id=paciente_id, limite=10_000)
+
+
+def anamnese(sessao: Session, *, clinica_id: int, paciente_id: int) -> list[dict]:
+    perguntas = list(
+        sessao.scalars(
+            select(PerguntaAnamnese)
+            .where(
+                PerguntaAnamnese.clinica_id == clinica_id,
+                PerguntaAnamnese.ativa.is_(True),
+            )
+            .order_by(PerguntaAnamnese.ordem, PerguntaAnamnese.codigo)
+        )
+    )
+    respostas = {
+        r.pergunta_id: r
+        for r in sessao.scalars(
+            select(RespostaAnamnese).where(RespostaAnamnese.paciente_id == paciente_id)
+        )
+    }
+    return [
+        {
+            "pergunta_id": p.id,
+            "codigo": p.codigo,
+            "texto": p.texto,
+            "tipo_resposta": p.tipo_resposta,
+            "resposta": respostas[p.id].resposta if p.id in respostas else None,
+            "respondido_em": respostas[p.id].respondido_em if p.id in respostas else None,
+        }
+        for p in perguntas
+    ]
+
+
+def responder(
+    sessao: Session,
+    *,
+    clinica_id: int,
+    usuario_id: int,
+    paciente_id: int,
+    respostas: dict[int, str],
+) -> int:
+    """Grava as respostas preenchidas. Devolve quantas gravou.
+
+    Resposta em branco nao cria linha: nao respondido e diferente de respondido
+    com vazio, e a ficha de saude precisa distinguir os dois.
+    """
+    guardadas = {
+        r.pergunta_id: r
+        for r in sessao.scalars(
+            select(RespostaAnamnese).where(RespostaAnamnese.paciente_id == paciente_id)
+        )
+    }
+    gravadas = 0
+    for pergunta_id, texto in respostas.items():
+        limpo = (texto or "").strip()
+        if not limpo:
+            continue
+        existente = guardadas.get(pergunta_id)
+        antes = {"resposta": existente.resposta} if existente else None
+        if existente is None:
+            existente = RespostaAnamnese(
+                paciente_id=paciente_id, pergunta_id=pergunta_id, resposta=limpo
+            )
+            sessao.add(existente)
+        else:
+            existente.resposta = limpo
+        existente.respondido_em = date.today()
+        sessao.flush()
+        registrar(
+            sessao,
+            clinica_id=clinica_id,
+            usuario_id=usuario_id,
+            acao="CRIAR" if antes is None else "ATUALIZAR",
+            entidade="resposta_anamnese",
+            entidade_id=existente.id,
+            antes=antes,
+            depois={"pergunta_id": pergunta_id, "resposta": limpo},
+        )
+        gravadas += 1
+    sessao.flush()
+    return gravadas

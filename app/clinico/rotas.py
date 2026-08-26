@@ -6,7 +6,8 @@ from starlette.exceptions import HTTPException
 from app.auth.models import Usuario
 from app.auth.sessao import usuario_atual
 from app.catalogo.service import arvore
-from app.clinico.service import estado_do_odontograma, historico
+from app.clinico.service import anamnese, estado_do_odontograma, historico, responder
+from app.pacientes.service import obter as obter_paciente
 from app.shared.db import obter_sessao
 from app.templates import templates
 
@@ -45,3 +46,52 @@ def tela(
             ),
         },
     )
+
+
+@router.get("/anamnese/{paciente_id}", response_class=HTMLResponse)
+def tela_anamnese(
+    request: Request,
+    paciente_id: int,
+    usuario: Usuario = Depends(usuario_atual),
+    sessao: Session = Depends(obter_sessao),
+):
+    paciente = obter_paciente(
+        sessao, clinica_id=usuario.clinica_id, paciente_id=paciente_id
+    )
+    if paciente is None:
+        raise HTTPException(status_code=404, detail="paciente nao encontrado")
+    return templates.TemplateResponse(
+        request,
+        "anamnese.html",
+        {
+            "aba": "odontograma",
+            "paciente": paciente,
+            "itens": anamnese(
+                sessao, clinica_id=usuario.clinica_id, paciente_id=paciente_id
+            ),
+        },
+    )
+
+
+@router.post("/anamnese/{paciente_id}")
+async def gravar_anamnese(
+    request: Request,
+    paciente_id: int,
+    usuario: Usuario = Depends(usuario_atual),
+    sessao: Session = Depends(obter_sessao),
+):
+    formulario = await request.form()
+    respostas = {
+        int(chave.removeprefix("pergunta_")): str(valor)
+        for chave, valor in formulario.items()
+        if chave.startswith("pergunta_")
+    }
+    responder(
+        sessao,
+        clinica_id=usuario.clinica_id,
+        usuario_id=usuario.id,
+        paciente_id=paciente_id,
+        respostas=respostas,
+    )
+    sessao.commit()
+    return RedirectResponse(f"/anamnese/{paciente_id}", status_code=303)

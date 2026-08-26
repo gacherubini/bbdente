@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block titulo %}Anamnese — {{ paciente.nome }}{% endblock %}
+{% block conteudo %}
+<h1>Anamnese — {{ paciente.nome }}</h1>
+<p class="legenda-topo">
+  <a href="/odontograma/{{ paciente.id }}">voltar para o odontograma</a>
+</p>
+
+<form method="post" action="/anamnese/{{ paciente.id }}" style="max-width:720px">
+  <table>
+    <thead><tr><th style="width:60%">Pergunta</th><th>Resposta</th></tr></thead>
+    <tbody>
+    {% for item in itens %}
+      <tr>
+        <td>{{ item.texto }}</td>
+        <td>
+          {% if item.tipo_resposta == 1 %}
+            <label><input type="radio" name="pergunta_{{ item.pergunta_id }}" value="Sim"
+                   {{ 'checked' if item.resposta == 'Sim' }}> Sim</label>
+            <label style="margin-left:12px">
+              <input type="radio" name="pergunta_{{ item.pergunta_id }}" value="Não"
+                     {{ 'checked' if item.resposta in ('Não', 'N') }}> Não</label>
+          {% else %}
+            <input type="text" name="pergunta_{{ item.pergunta_id }}"
+                   value="{{ item.resposta or '' }}" style="width:100%">
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <button type="submit" class="primario" style="margin-top:16px">Salvar respostas</button>
+</form>
+{% endblock %}
