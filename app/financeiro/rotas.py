@@ -7,22 +7,31 @@ nasce pronta, sem uma segunda ida ao servidor so para desenhar.
 import calendar
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
+from starlette.exceptions import HTTPException
 
 from app.auth.models import Usuario
 from app.auth.sessao import usuario_atual
+from app.financeiro.models import Parcela
 from app.financeiro.service import (
+    LIMITE_DE_COBRANCA,
+    RecebimentoInvalido,
     a_receber,
     anos_com_movimento,
     producao_por_categoria,
     producao_por_convenio,
     producao_por_dia,
+    quitar,
     recebido_por_mes,
+    registrar_recebimento,
     resumo,
 )
+from app.pacientes.service import nomes_de
 from app.shared.db import obter_sessao
+from app.shared.formato import ValorInvalido, moeda, para_decimal
 from app.templates import templates
 
 router = APIRouter()
@@ -127,6 +136,154 @@ def tela(
             and numeros.tratamentos == 0,
             "cobranca": linhas,
             "cobranca_completa": tudo,
+            "cobranca_truncada": len(linhas) == LIMITE_DE_COBRANCA,
+            "limite_de_cobranca": LIMITE_DE_COBRANCA,
             "graficos": graficos,
         },
     )
+
+
+FORMAS = ["Dinheiro", "Pix", "Cartão", "Cheque", "Boleto", "Transferência"]
+
+
+def _tela_de_recebimento(
+    request: Request,
+    sessao: Session,
+    clinica_id: int,
+    *,
+    paciente_id: int | None,
+    parcela: Parcela | None,
+    dados: dict[str, str],
+    erro: str | None = None,
+) -> HTMLResponse:
+    alvo = parcela.paciente_id if parcela is not None else paciente_id
+    nomes = nomes_de(sessao, clinica_id=clinica_id, paciente_ids=[alvo] if alvo else [])
+    if alvo is None or alvo not in nomes:
+        raise HTTPException(status_code=404, detail="paciente nao encontrado")
+    return templates.TemplateResponse(
+        request,
+        "recebimento.html",
+        {
+            "aba": "financeiro",
+            "paciente_id": alvo,
+            "paciente": nomes[alvo],
+            "parcela": parcela,
+            "formas": FORMAS,
+            "dados": dados,
+            "erro": erro,
+        },
+        status_code=200,
+    )
+
+
+def _parcela(sessao: Session, clinica_id: int, parcela_id: int) -> Parcela:
+    parcela = sessao.scalars(
+        select(Parcela).where(
+            Parcela.id == parcela_id,
+            Parcela.clinica_id == clinica_id,
+            Parcela.excluido_em.is_(None),
+        )
+    ).first()
+    if parcela is None:
+        raise HTTPException(status_code=404, detail="parcela nao encontrada")
+    return parcela
+
+
+@router.get("/financeiro/recebimento", response_class=HTMLResponse)
+def tela_de_recebimento(
+    request: Request,
+    paciente_id: int | None = Query(None),
+    parcela_id: int | None = Query(None),
+    usuario: Usuario = Depends(usuario_atual),
+    sessao: Session = Depends(obter_sessao),
+):
+    parcela = (
+        _parcela(sessao, usuario.clinica_id, parcela_id) if parcela_id else None
+    )
+    return _tela_de_recebimento(
+        request,
+        sessao,
+        usuario.clinica_id,
+        paciente_id=paciente_id,
+        parcela=parcela,
+        dados={
+            # Quitar uma parcela ja vem com o saldo preenchido: quase sempre e o
+            # valor que a pessoa esta pagando.
+            "valor": moeda(parcela.saldo) if parcela is not None else "",
+            "data": date.today().isoformat(),
+            "forma": "",
+            "observacao": "",
+        },
+    )
+
+
+@router.post("/financeiro/recebimento")
+def gravar_recebimento(
+    request: Request,
+    paciente_id: str = Form(""),
+    parcela_id: str = Form(""),
+    valor: str = Form(""),
+    data: str = Form(""),
+    forma: str = Form(""),
+    observacao: str = Form(""),
+    usuario: Usuario = Depends(usuario_atual),
+    sessao: Session = Depends(obter_sessao),
+):
+    if not paciente_id.strip() and not parcela_id.strip():
+        raise HTTPException(
+            status_code=422, detail="diga de quem e o recebimento"
+        )
+
+    parcela = (
+        _parcela(sessao, usuario.clinica_id, int(parcela_id)) if parcela_id.strip()
+        else None
+    )
+    dados = {"valor": valor, "data": data, "forma": forma, "observacao": observacao}
+
+    def formulario(mensagem: str) -> HTMLResponse:
+        return _tela_de_recebimento(
+            request,
+            sessao,
+            usuario.clinica_id,
+            paciente_id=int(paciente_id) if paciente_id.strip() else None,
+            parcela=parcela,
+            dados=dados,
+            erro=mensagem,
+        )
+
+    try:
+        quantia = para_decimal(valor)
+        quando = date.fromisoformat(data) if data.strip() else date.today()
+    except ValorInvalido as erro:
+        return formulario(str(erro))
+    except ValueError:
+        return formulario("Data inválida.")
+
+    try:
+        if parcela is not None:
+            alvo = quitar(
+                sessao,
+                clinica_id=usuario.clinica_id,
+                usuario_id=usuario.id,
+                parcela_id=parcela.id,
+                valor=quantia,
+                quando=quando,
+                forma=forma.strip() or None,
+                observacao=observacao.strip() or None,
+            )
+        else:
+            alvo = registrar_recebimento(
+                sessao,
+                clinica_id=usuario.clinica_id,
+                usuario_id=usuario.id,
+                paciente_id=int(paciente_id),
+                valor=quantia,
+                quando=quando,
+                forma=forma.strip() or None,
+                observacao=observacao.strip() or None,
+            )
+    except RecebimentoInvalido as erro:
+        return formulario(str(erro))
+
+    sessao.commit()
+    return RedirectResponse(f"/odontograma/{alvo.paciente_id}", status_code=303)

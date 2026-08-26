@@ -139,7 +139,7 @@
     <tr><th>Paciente</th><th>Venceu em</th><th>Atraso</th>
         <th style="text-align:right">Cobrado</th>
         <th style="text-align:right">Pago</th>
-        <th style="text-align:right">Saldo</th></tr>
+        <th style="text-align:right">Saldo</th><th></th></tr>
   </thead>
   <tbody>
   {% for linha in cobranca %}
@@ -152,9 +152,12 @@
       <td style="text-align:right" class="numero">R$ {{ linha.cobrado | moeda }}</td>
       <td style="text-align:right" class="numero">R$ {{ linha.pago | moeda }}</td>
       <td style="text-align:right" class="numero">R$ {{ linha.saldo | moeda }}</td>
+      <td style="text-align:right">
+        <a href="/financeiro/recebimento?parcela_id={{ linha.parcela_id }}">receber</a>
+      </td>
     </tr>
   {% else %}
-    <tr><td colspan="6" style="color:var(--texto-fraco)">
+    <tr><td colspan="7" style="color:var(--texto-fraco)">
       Nada vencido no período. {% if not cobranca_completa %}
       <a href="/financeiro?ano={{ ano }}&mes={{ mes }}&cobranca=tudo">Ver o histórico completo</a>.
       {% endif %}
@@ -162,6 +165,13 @@
   {% endfor %}
   </tbody>
 </table>
+{% if cobranca_truncada %}
+  <p class="painel-dica">
+    Mostrando as {{ limite_de_cobranca }} mais antigas. Não é a lista inteira —
+    são milhares de parcelas vencidas acumuladas em 30 anos, e uma página com
+    todas elas não ajudaria a cobrar nenhuma.
+  </p>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}

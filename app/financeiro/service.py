@@ -14,12 +14,13 @@ lado a lado justamente para isso ficar visivel em vez de escondido numa media.
 
 import calendar
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.auth.auditoria import registrar
 from app.catalogo.service import categorias_de, nomes_de_convenio
 from app.clinico.service import producao, producao_por_paciente, producao_por_procedimento
 from app.clinico.service import producao_por_dia as producao_por_dia_do_clinico
@@ -195,14 +196,26 @@ def producao_por_convenio(
     return _fatias(soma)
 
 
+# Sao 10.233 parcelas vencidas e nao quitadas no banco real, acumuladas desde
+# 1996. Uma pagina com dez mil linhas nao e uma lista de cobranca, e um arquivo
+# morto que trava o navegador.
+LIMITE_DE_COBRANCA = 300
+
+
 def a_receber(
-    sessao: Session, *, clinica_id: int, ate: date, desde: date
+    sessao: Session,
+    *,
+    clinica_id: int,
+    ate: date,
+    desde: date,
+    limite: int = LIMITE_DE_COBRANCA,
 ) -> list[LinhaCobranca]:
     """A lista de cobranca: o que venceu ate `ate`, desde `desde`, e tem saldo.
 
-    O corte por `desde` existe porque R$ 3,4 milhoes em aberto acumulados desde
-    1996 nao sao cobranca, sao historia — e uma lista que comeca em 1996 nunca
-    chega no que da para cobrar hoje.
+    O corte por `desde` existe porque a divida acumulada desde 1996 nao e
+    cobranca, e historia — e uma lista que comeca em 1996 nunca chega no que da
+    para cobrar hoje. O `limite` e a segunda trava: dez mil linhas numa pagina
+    nao ajudam ninguem a cobrar nada.
     """
     parcelas = list(
         sessao.scalars(
@@ -217,6 +230,7 @@ def a_receber(
                 Parcela.valor_cobrado > Parcela.valor_pago,
             )
             .order_by(Parcela.vencimento, Parcela.id)
+            .limit(limite)
         )
     )
     # Uma consulta para todos os nomes: sao milhares de linhas no banco real, e
@@ -260,3 +274,123 @@ def anos_com_movimento(sessao: Session, *, clinica_id: int) -> list[int]:
     ).all()
     limite = date.today().year
     return [int(a) for a in anos if ANO_MINIMO <= int(a) <= limite]
+
+
+class RecebimentoInvalido(ValueError):
+    """O que foi informado nao pode virar um recebimento."""
+
+
+def _conferir(valor: Decimal, quando: date) -> None:
+    if valor <= ZERO:
+        raise RecebimentoInvalido("o valor recebido precisa ser maior que zero")
+    if quando > date.today():
+        # Recebimento e fato, nao promessa. Dinheiro que ainda nao entrou nao
+        # pode entrar no caixa de hoje.
+        raise RecebimentoInvalido("a data do recebimento nao pode estar no futuro")
+
+
+def registrar_recebimento(
+    sessao: Session,
+    *,
+    clinica_id: int,
+    usuario_id: int,
+    paciente_id: int,
+    valor: Decimal,
+    quando: date,
+    forma: str | None = None,
+    observacao: str | None = None,
+) -> Parcela:
+    """Dinheiro que entrou sem parcela previa: vira parcela ja quitada.
+
+    Uma tabela so para as duas coisas — cobranca e recebimento sao a mesma linha
+    em momentos diferentes da vida dela.
+    """
+    _conferir(valor, quando)
+    parcela = Parcela(
+        clinica_id=clinica_id,
+        paciente_id=paciente_id,
+        numero="",
+        vencimento=quando,
+        valor_cobrado=valor,
+        valor_pago=valor,
+        pago_em=quando,
+        forma_pagamento=forma,
+        observacao=observacao,
+        criado_por=usuario_id,
+        criado_em=datetime.now(UTC),
+    )
+    sessao.add(parcela)
+    sessao.flush()
+    registrar(
+        sessao,
+        clinica_id=clinica_id,
+        usuario_id=usuario_id,
+        acao="CRIAR",
+        entidade="parcela",
+        entidade_id=parcela.id,
+        depois={
+            "paciente_id": paciente_id,
+            "valor_pago": str(_decimal(valor)),
+            "pago_em": quando.isoformat(),
+            "forma_pagamento": forma,
+        },
+    )
+    return parcela
+
+
+def quitar(
+    sessao: Session,
+    *,
+    clinica_id: int,
+    usuario_id: int,
+    parcela_id: int,
+    valor: Decimal,
+    quando: date,
+    forma: str | None = None,
+    observacao: str | None = None,
+) -> Parcela:
+    """Recebe dinheiro numa parcela que ja existia.
+
+    Pagar menos que o saldo e pagamento PARCIAL: o valor entra, o resto continua
+    devido. E assim que 7.849 parcelas do historico foram registradas, e o
+    Dentalis guardava so a data do ultimo pagamento — aqui e igual, para o
+    numero antigo e o novo continuarem significando a mesma coisa.
+    """
+    _conferir(valor, quando)
+    parcela = sessao.scalars(
+        select(Parcela).where(
+            Parcela.id == parcela_id, *_vivas(clinica_id)
+        )
+    ).first()
+    if parcela is None:
+        raise LookupError("parcela nao encontrada")
+
+    # Sempre com dois centavos na auditoria: um lado gravado como '0' e o outro
+    # como '0.00' faz o registro parecer uma mudanca que nao houve.
+    antes = {
+        "valor_pago": str(_decimal(parcela.valor_pago)),
+        "pago_em": parcela.pago_em.isoformat() if parcela.pago_em else None,
+    }
+    parcela.valor_pago = _decimal((parcela.valor_pago or ZERO) + valor)
+    parcela.pago_em = quando
+    if forma:
+        parcela.forma_pagamento = forma
+    if observacao:
+        parcela.observacao = observacao
+    sessao.flush()
+
+    registrar(
+        sessao,
+        clinica_id=clinica_id,
+        usuario_id=usuario_id,
+        acao="ATUALIZAR",
+        entidade="parcela",
+        entidade_id=parcela.id,
+        antes=antes,
+        depois={
+            "valor_pago": str(_decimal(parcela.valor_pago)),
+            "pago_em": quando.isoformat(),
+            "forma_pagamento": parcela.forma_pagamento,
+        },
+    )
+    return parcela

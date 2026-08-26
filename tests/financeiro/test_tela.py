@@ -7,7 +7,7 @@ nao despejar 30 anos de divida como se fosse cobranca de hoje.
 
 import json
 import re
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -261,3 +261,23 @@ def test_o_javascript_nunca_poe_nome_do_banco_como_html():
 
     fonte = Path("app/static/graficos.js").read_text(encoding="utf-8")
     assert "textContent = fatia[0]" in fonte
+
+
+def test_a_cobranca_nao_despeja_dez_mil_linhas_numa_pagina(sessao, cliente, cenario):
+    """Sao 10.233 parcelas vencidas no banco real. Uma pagina com todas nao e
+    lista de cobranca, e arquivo morto que trava o navegador."""
+    from app.financeiro.service import LIMITE_DE_COBRANCA
+
+    clinica, _, paciente, _ = cenario
+    for dia in range(1, LIMITE_DE_COBRANCA + 20):
+        sessao.add(
+            Parcela(
+                clinica_id=clinica.id, paciente_id=paciente.id, numero="01/01",
+                vencimento=date(2020, 1, 1) + timedelta(days=dia),
+                valor_cobrado=Decimal("100.00"),
+            )
+        )
+    sessao.flush()
+    html = cliente.get("/financeiro?ano=2026&mes=5&cobranca=tudo").text
+    assert html.count('href="/financeiro/recebimento?parcela_id=') == LIMITE_DE_COBRANCA
+    assert "Mostrando as" in html

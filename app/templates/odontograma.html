@@ -17,6 +17,7 @@
   {{ estado.paciente.codigo_legado or '—' }} ·
   <a href="/pacientes">voltar para a lista</a> ·
   <a href="/pacientes/{{ estado.paciente.id }}/editar">editar cadastro</a> ·
+  <a href="/financeiro/recebimento?paciente_id={{ estado.paciente.id }}">registrar recebimento</a> ·
   <a href="/anamnese/{{ estado.paciente.id }}">anamnese</a> ·
   <a href="/prontuario/{{ estado.paciente.id }}.pdf">prontuário em PDF</a>
 </p>

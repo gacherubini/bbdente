@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block titulo %}Registrar recebimento — BDDente{% endblock %}
+{% block conteudo %}
+<h1>{% if parcela %}Receber desta parcela{% else %}Registrar recebimento{% endif %}</h1>
+<p class="legenda-topo">
+  {{ paciente }} ·
+  <a href="/odontograma/{{ paciente_id }}">voltar para o odontograma</a>
+</p>
+
+<form class="cartao-form" method="post" action="/financeiro/recebimento">
+  {% if erro %}<p class="painel-erro">{{ erro }}</p>{% endif %}
+
+  {% if parcela %}
+    <input type="hidden" name="parcela_id" value="{{ parcela.id }}">
+    <div class="parcela-resumo">
+      <p>Vencida em {{ parcela.vencimento.strftime('%d/%m/%Y') }}</p>
+      <ul>
+        <li><span>Cobrado</span>
+            <span class="numero">R$ {{ parcela.valor_cobrado | moeda }}</span></li>
+        <li><span>Já pago</span>
+            <span class="numero">R$ {{ parcela.valor_pago | moeda }}</span></li>
+        <li><span><b>Saldo</b></span>
+            <span class="numero"><b>R$ {{ parcela.saldo | moeda }}</b></span></li>
+      </ul>
+    </div>
+    <p class="painel-dica">
+      Receber menos que o saldo é pagamento parcial: o resto continua devido.
+    </p>
+  {% else %}
+    <input type="hidden" name="paciente_id" value="{{ paciente_id }}">
+  {% endif %}
+
+  <div class="linha-dupla">
+    <div>
+      <label class="rotulo" for="valor">Valor recebido (R$)</label>
+      <input type="text" id="valor" name="valor" inputmode="decimal" required
+             autofocus value="{{ dados.valor }}" placeholder="0,00">
+    </div>
+    <div>
+      <label class="rotulo" for="data">Data</label>
+      <input type="date" id="data" name="data" value="{{ dados.data }}">
+    </div>
+  </div>
+
+  <label class="rotulo" for="forma">Forma de pagamento</label>
+  <select id="forma" name="forma">
+    <option value="">— não informado —</option>
+    {% for f in formas %}
+      <option value="{{ f }}" {{ 'selected' if dados.forma == f }}>{{ f }}</option>
+    {% endfor %}
+  </select>
+
+  <label class="rotulo" for="observacao">Observação</label>
+  <input type="text" id="observacao" name="observacao"
+         value="{{ dados.observacao }}" placeholder="opcional">
+
+  <div class="acoes-form">
+    <a class="botao-secundario" href="/odontograma/{{ paciente_id }}">Cancelar</a>
+    <button type="submit" class="primario">Registrar</button>
+  </div>
+</form>
+{% endblock %}
