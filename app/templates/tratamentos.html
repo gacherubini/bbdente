@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block titulo %}Tratamentos — BDDente{% endblock %}
+{% block conteudo %}
+<h1>Tratamentos</h1>
+<p class="legenda-topo">
+  {{ catalogo | length }} categorias em uso ·
+  {{ catalogo | map(attribute='procedimentos') | map('length') | sum }} tratamentos ativos
+</p>
+
+<div class="odonto-area">
+  <div style="flex:1 1 520px;min-width:0">
+    {% for categoria in catalogo %}
+      <h2 class="titulo-historico">{{ categoria.nome }}</h2>
+      <table>
+        <thead><tr><th>Código</th><th>Tratamento</th><th>Onde costuma ser</th></tr></thead>
+        <tbody>
+        {% for procedimento in categoria.procedimentos %}
+          <tr>
+            <td class="codigo">{{ procedimento.codigo }}</td>
+            <td class="nome">{{ procedimento.nome }}</td>
+            <td>
+              {% if procedimento.escopo_sugerido == 'BOCA' %}Boca toda
+              {% elif procedimento.escopo_sugerido == 'DENTE' %}Dente inteiro
+              {% else %}{{ procedimento.regioes_sugeridas | join(', ') | lower or 'regiões' }}
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p style="color:var(--texto-fraco)">Nenhum tratamento cadastrado ainda.</p>
+    {% endfor %}
+  </div>
+
+  <aside class="painel">
+    <div class="painel-alvo">Novo tratamento</div>
+    <form method="post" action="/tratamentos">
+      <label class="rotulo" for="codigo">Código</label>
+      <input type="text" id="codigo" name="codigo" required>
+
+      <label class="rotulo" for="nome">Nome</label>
+      <input type="text" id="nome" name="nome" required>
+
+      <label class="rotulo" for="categoria_id">Categoria</label>
+      <select id="categoria_id" name="categoria_id" required>
+        {% for categoria in categorias %}
+          <option value="{{ categoria.id }}">{{ categoria.nome }}</option>
+        {% endfor %}
+      </select>
+
+      <label class="rotulo">Onde costuma ser</label>
+      <div class="escopos">
+        {% for escopo in escopos %}
+          <label>
+            <input type="radio" name="escopo_sugerido" value="{{ escopo.value }}"
+                   {{ 'checked' if escopo.value == 'DENTE' }}>
+            {{ {'BOCA':'Boca toda','DENTE':'Dente inteiro','REGIOES':'Regiões'}[escopo.value] }}
+          </label>
+        {% endfor %}
+      </div>
+
+      <fieldset class="regioes">
+        <legend>Regiões sugeridas</legend>
+        {% for r in regioes %}
+          <label><input type="checkbox" name="regiao" value="{{ r.value }}">
+            {{ r.value | lower | replace('_', ' ') }}</label>
+        {% endfor %}
+      </fieldset>
+
+      <div class="linha-dupla">
+        <div>
+          <label class="rotulo" for="convenio_id">Convênio</label>
+          <select id="convenio_id" name="convenio_id">
+            <option value="">—</option>
+            {% for convenio in convenios %}
+              <option value="{{ convenio.id }}">{{ convenio.nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="rotulo" for="valor">Valor (R$)</label>
+          <input type="text" id="valor" name="valor" inputmode="decimal" placeholder="0,00">
+        </div>
+      </div>
+
+      {% if erro %}<p class="painel-erro">{{ erro }}</p>{% endif %}
+      <button type="submit" class="primario">Salvar</button>
+    </form>
+  </aside>
+</div>
+{% endblock %}

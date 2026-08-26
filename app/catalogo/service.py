@@ -1,11 +1,15 @@
 """Fronteira publica do modulo catalogo."""
 
 from collections.abc import Iterable
+from datetime import date
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.catalogo.models import Convenio
+from app.auth.auditoria import registrar
+from app.catalogo.models import Categoria, Convenio, Preco, Procedimento
+from app.shared.tipos import Escopo, Regiao
 
 
 def nomes_de_convenio(
@@ -24,3 +28,169 @@ def nomes_de_convenio(
             )
         )
     }
+
+
+def arvore(sessao: Session, *, clinica_id: int) -> list[dict]:
+    """Catalogo agrupado por categoria, na ordem da tela. Alimenta o painel de
+    lancamento e a tela de tratamentos."""
+    categorias = list(
+        sessao.scalars(
+            select(Categoria)
+            .where(Categoria.clinica_id == clinica_id)
+            .order_by(Categoria.ordem, Categoria.nome)
+        )
+    )
+    procedimentos = list(
+        sessao.scalars(
+            select(Procedimento)
+            .where(Procedimento.clinica_id == clinica_id, Procedimento.ativo.is_(True))
+            .order_by(Procedimento.nome)
+        )
+    )
+    por_categoria: dict[int, list[dict]] = {}
+    for p in procedimentos:
+        por_categoria.setdefault(p.categoria_id, []).append(
+            {
+                "id": p.id,
+                "codigo": p.codigo,
+                "nome": p.nome,
+                "escopo_sugerido": p.escopo_sugerido.value,
+                "regioes_sugeridas": [r.value for r in (p.regioes_sugeridas or [])],
+                "duracao_min": p.duracao_min,
+            }
+        )
+    return [
+        {
+            "id": c.id,
+            "codigo": c.codigo,
+            "nome": c.nome,
+            "procedimentos": por_categoria.get(c.id, []),
+        }
+        for c in categorias
+        if por_categoria.get(c.id)
+    ]
+
+
+class CodigoRepetido(ValueError):
+    """Ja existe outro tratamento com este codigo nesta clinica."""
+
+
+def salvar_procedimento(
+    sessao: Session,
+    *,
+    clinica_id: int,
+    usuario_id: int,
+    procedimento_id: int | None = None,
+    codigo: str,
+    nome: str,
+    categoria_id: int,
+    escopo_sugerido: Escopo,
+    regioes_sugeridas: "list[Regiao]",
+    duracao_min: int | None = None,
+    ativo: bool = True,
+) -> Procedimento:
+    codigo = codigo.strip()
+    conflito = sessao.scalars(
+        select(Procedimento).where(
+            Procedimento.clinica_id == clinica_id, Procedimento.codigo == codigo
+        )
+    ).first()
+    if conflito is not None and conflito.id != procedimento_id:
+        raise CodigoRepetido(f"o codigo {codigo} ja e usado por '{conflito.nome}'")
+
+    if procedimento_id is None:
+        procedimento = Procedimento(clinica_id=clinica_id, codigo=codigo)
+        sessao.add(procedimento)
+        acao, antes = "CRIAR", None
+    else:
+        procedimento = sessao.scalars(
+            select(Procedimento).where(
+                Procedimento.id == procedimento_id,
+                Procedimento.clinica_id == clinica_id,
+            )
+        ).one()
+        acao = "ATUALIZAR"
+        antes = {
+            "codigo": procedimento.codigo,
+            "nome": procedimento.nome,
+            "escopo_sugerido": procedimento.escopo_sugerido.value,
+        }
+
+    procedimento.codigo = codigo
+    procedimento.nome = nome.strip()
+    procedimento.categoria_id = categoria_id
+    procedimento.escopo_sugerido = escopo_sugerido
+    procedimento.regioes_sugeridas = list(regioes_sugeridas)
+    procedimento.duracao_min = duracao_min
+    procedimento.ativo = ativo
+    sessao.flush()
+
+    registrar(
+        sessao,
+        clinica_id=clinica_id,
+        usuario_id=usuario_id,
+        acao=acao,
+        entidade="procedimento",
+        entidade_id=procedimento.id,
+        antes=antes,
+        depois={
+            "codigo": codigo,
+            "nome": procedimento.nome,
+            "escopo_sugerido": escopo_sugerido.value,
+            "ativo": ativo,
+        },
+    )
+    return procedimento
+
+
+def definir_preco(
+    sessao: Session,
+    *,
+    clinica_id: int,
+    usuario_id: int,
+    procedimento_id: int,
+    convenio_id: int,
+    valor: Decimal,
+    vigente_desde: date | None = None,
+) -> Preco:
+    """Cria uma nova vigencia. O preco antigo NUNCA e sobrescrito: um lancamento
+    de 2015 foi cobrado ao preco de 2015, e o extrato tem de continuar explicavel."""
+    preco = Preco(
+        procedimento_id=procedimento_id,
+        convenio_id=convenio_id,
+        valor=Decimal(valor).quantize(Decimal("0.01")),
+        vigente_desde=vigente_desde or date.today(),
+    )
+    sessao.add(preco)
+    sessao.flush()
+    registrar(
+        sessao,
+        clinica_id=clinica_id,
+        usuario_id=usuario_id,
+        acao="CRIAR",
+        entidade="preco",
+        entidade_id=preco.id,
+        depois={
+            "procedimento_id": procedimento_id,
+            "convenio_id": convenio_id,
+            "valor": str(preco.valor),
+        },
+    )
+    return preco
+
+
+def preco_de(
+    sessao: Session, *, procedimento_id: int, convenio_id: int, em: date | None = None
+) -> Decimal | None:
+    """O preco vigente na data pedida (hoje, por padrao)."""
+    quando = em or date.today()
+    preco = sessao.scalars(
+        select(Preco)
+        .where(
+            Preco.procedimento_id == procedimento_id,
+            Preco.convenio_id == convenio_id,
+            Preco.vigente_desde <= quando,
+        )
+        .order_by(Preco.vigente_desde.desc(), Preco.id.desc())
+    ).first()
+    return preco.valor if preco else None
