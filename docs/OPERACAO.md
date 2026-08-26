@@ -61,6 +61,27 @@ Migrations e o primeiro usuário rodam à mão depois do deploy:
     fly ssh console -C "alembic upgrade head"
     fly ssh console --pty -C "python -m scripts.criar_usuario katia@exemplo.com 'Katia'"
 
+### Migration que o código novo já usa: aplique ANTES do deploy
+
+A ordem importa e a armadilha é silenciosa. `fly ssh console -C "alembic upgrade
+head"` roda o Alembic **de dentro da imagem em produção** — que ainda é a
+anterior e não contém o arquivo da migration nova. O comando responde com
+sucesso e não faz nada: `alembic current` continua marcando a revisão velha como
+`(head)`, porque na visão daquela imagem ela é mesmo a última.
+
+Se o deploy subir primeiro, o código novo procura uma coluna que não existe e a
+tela quebra até alguém perceber. Para migration aditiva — coluna nova e nulável,
+tabela nova — aplique **antes**, pelo túnel, com o código da sua máquina:
+
+    fly proxy 5433:5432 -a bddente-db
+    DATABASE_URL="postgres://postgres:<senha>@localhost:5433/bddente"         .venv/bin/alembic upgrade head
+
+A `<senha>` sai de `fly ssh console -a bddente -C "printenv DATABASE_URL"`.
+Migration aditiva é compatível com o código antigo: a coluna fica lá, sem ninguém
+usar, até o deploy chegar. Migration que **remove** ou **renomeia** coluna não
+tem esse conforto — ela precisa ser quebrada em duas, uma antes e outra depois do
+deploy.
+
 ## Primeira carga: levar os 30 anos de histórico para produção
 
 A migração roda **na máquina local**, contra o Postgres do `docker compose` — o
