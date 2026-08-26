@@ -510,6 +510,102 @@ def historico(
     )
 
 
+def _agrupar(itens: list[dict], chave) -> list[tuple]:
+    """Agrupa preservando a ordem em que os itens chegaram.
+
+    A ordem importa: quem chama ja ordenou o que veio do banco, e um dict comum
+    mantem a ordem de insercao — reordenar aqui desfaria aquele trabalho.
+    """
+    grupos: dict = {}
+    for item in itens:
+        grupos.setdefault(chave(item), []).append(item)
+    return list(grupos.items())
+
+
+def _somar(itens: list[dict]) -> Decimal:
+    return sum((Decimal(i["valor"]) for i in itens), Decimal("0.00"))
+
+
+def atendimentos_do_dia(sessao: Session, *, clinica_id: int, dia: date) -> list[dict]:
+    """Quem foi atendido no dia, e o que foi feito em cada um.
+
+    So entra o que FOI FEITO: status REALIZADO com `data_realizada` no dia. Um
+    tratamento planejado para hoje e agenda, nao prontuario — e o repositorio ja
+    proibe chamar de a mesma coisa o que esta por fazer e o que foi feito.
+
+    Como nao existe entidade `atendimento` no banco, um atendimento aqui e "um
+    paciente num dia": duas idas da mesma pessoa no mesmo dia aparecem como uma.
+    Separar exigiria uma tabela nova e o backfill dos 44.812 lancamentos migrados.
+
+    Devolve o `paciente_id`, nunca o nome: buscar nome aqui seria JOIN em tabela
+    de outro modulo. Quem monta a tela resolve por `pacientes.service.nomes_de()`.
+    """
+    linhas = sessao.execute(
+        select(Lancamento, Procedimento.nome, Odontograma.paciente_id)
+        .join(Odontograma, Lancamento.odontograma_id == Odontograma.id)
+        .join(Procedimento, Lancamento.procedimento_id == Procedimento.id)
+        .where(
+            Lancamento.clinica_id == clinica_id,
+            Lancamento.status == StatusLancamento.REALIZADO,
+            Lancamento.data_realizada == dia,
+            Lancamento.excluido_em.is_(None),
+        )
+        .order_by(Odontograma.paciente_id, Lancamento.id)
+    ).all()
+
+    itens = [
+        {
+            "paciente_id": paciente_id,
+            "lancamento_id": lancamento.id,
+            "dente": lancamento.dente,
+            "escopo": lancamento.escopo.value,
+            "procedimento": nome,
+            "valor": str(lancamento.valor),
+            "observacao": lancamento.observacao,
+        }
+        for lancamento, nome, paciente_id in linhas
+    ]
+
+    return [
+        {
+            "paciente_id": paciente_id,
+            "quantos": len(do_paciente),
+            "total": _somar(do_paciente),
+            "itens": do_paciente,
+        }
+        for paciente_id, do_paciente in _agrupar(itens, lambda i: i["paciente_id"])
+    ]
+
+
+def atendimentos_do_paciente(
+    sessao: Session, *, clinica_id: int, paciente_id: int, limite: int = 200
+) -> list[dict]:
+    """O historico do paciente agrupado por data: cada data e um atendimento.
+
+    Ao contrario da tela do dia, o PLANEJADO entra junto. A tabela do historico e
+    a mesma que a dentista corrige na linha, e e nela que ela marca o planejado
+    como feito — esconder o planejado tiraria dela esse caminho.
+
+    Os itens sao os mesmos dicionarios que `historico()` devolve, sem tirar nem
+    acrescentar campo: o template le `lancamento_id`, `status` e `valor` deles
+    para os `data-*` que a edicao na linha usa.
+    """
+    itens = historico(
+        sessao, clinica_id=clinica_id, paciente_id=paciente_id, limite=limite
+    )
+    # `historico()` ja ordena do mais novo para o mais antigo e joga o que nao tem
+    # data para o fim. Agrupar preservando a ordem herda as duas coisas.
+    return [
+        {
+            "data": quando,
+            "quantos": len(do_dia),
+            "total": _somar(do_dia),
+            "itens": do_dia,
+        }
+        for quando, do_dia in _agrupar(itens, lambda i: i["data"])
+    ]
+
+
 def lancamentos_do_paciente(
     sessao: Session, *, clinica_id: int, paciente_id: int
 ) -> list[dict]:

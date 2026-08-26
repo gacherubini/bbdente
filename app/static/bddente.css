@@ -643,7 +643,8 @@ button.ligacao:hover { color: var(--roxo); }
 /* --- financeiro --- */
 .seletor-periodo { display: flex; align-items: flex-end; gap: 10px; }
 .seletor-periodo .rotulo { margin: 0 0 4px; }
-.seletor-periodo select {
+.seletor-periodo select,
+.seletor-periodo input[type="date"] {
   border: 1px solid var(--borda);
   border-radius: var(--raio);
   padding: 8px 10px;
@@ -713,3 +714,45 @@ button.ligacao:hover { color: var(--roxo); }
 .parcela-resumo ul { list-style: none; margin: 0; padding: 0; }
 .parcela-resumo li { display: flex; justify-content: space-between; gap: 12px; }
 .parcela-resumo li + li { margin-top: 4px; }
+
+/* --- o dia da clinica, e o historico agrupado por dia --- */
+
+/* Um atendimento e um paciente num dia: nao existe entidade `atendimento` no
+   banco, e a tela deixa isso visivel agrupando por pessoa, nao por horario. */
+.atendimento {
+  border: 1px solid var(--borda);
+  border-radius: 12px;
+  padding: 4px 14px 6px;
+  margin-top: 14px;
+}
+.atendimento-topo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 0 2px;
+}
+.atendimento-topo h2 { font-size: 15px; margin: 0; }
+.atendimento-topo a { color: var(--texto); text-decoration: none; }
+.atendimento-topo a:hover { color: var(--roxo-esc); text-decoration: underline; }
+.atendimento-resumo { font-size: 12.5px; color: var(--texto-fraco); }
+.atendimento table { font-size: 12.5px; }
+.atendimento tbody tr:last-child td { border-bottom: 0; }
+
+/* A linha que separa um dia do outro dentro do historico. E uma linha da MESMA
+   tabela, nao uma tabela por dia — o historico.js acha o historico por
+   `.titulo-historico + table` e edita a linha ali dentro. */
+.grupo-dia td {
+  background: var(--roxo-cl);
+  border-bottom: 1px solid var(--roxo-brd);
+  padding: 7px 12px;
+}
+tbody tr.grupo-dia:hover td { background: var(--roxo-cl); }
+.grupo-data {
+  font-weight: 700;
+  font-size: 12.5px;
+  color: var(--roxo-esc);
+  font-variant-numeric: tabular-nums;
+}
+.grupo-resumo { font-size: 11.5px; color: var(--roxo-esc); opacity: 0.85; }

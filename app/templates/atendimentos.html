@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block titulo %}Atendimentos — BDDente{% endblock %}
+{% block conteudo %}
+<div class="topo-lista">
+  <div>
+    <h1>Atendimentos</h1>
+    <p class="legenda-topo">
+      {{ dia.strftime('%d/%m/%Y') }} · {{ dia_da_semana }}
+      {%- if dia != hoje %}
+        · <a href="/atendimentos">voltar para hoje</a>
+      {%- endif %}
+    </p>
+  </div>
+
+  <form class="seletor-periodo" method="get" action="/atendimentos">
+    <label class="rotulo" for="dia">Dia</label>
+    <input type="date" id="dia" name="dia" value="{{ dia.isoformat() }}"
+           onchange="this.form.submit()">
+    <noscript><button type="submit" class="secundario">Ver</button></noscript>
+  </form>
+</div>
+
+{% if not grupos %}
+  <p class="aviso">
+    Nenhum atendimento em {{ dia.strftime('%d/%m/%Y') }}.
+    {% if dia == hoje %}
+      Quando você concluir um atendimento, ele aparece aqui.
+    {% endif %}
+  </p>
+{% else %}
+
+<div class="cartoes">
+  <div class="cartao">
+    <span class="cartao-rotulo">Pacientes</span>
+    <strong class="numero">{{ pacientes }}</strong>
+    <span class="cartao-ajuda">atendidos no dia</span>
+  </div>
+  <div class="cartao">
+    <span class="cartao-rotulo">Tratamentos</span>
+    <strong class="numero">{{ tratamentos }}</strong>
+    <span class="cartao-ajuda">realizados no dia</span>
+  </div>
+  <div class="cartao">
+    <span class="cartao-rotulo">Produzido</span>
+    <strong class="numero">R$ {{ total | moeda }}</strong>
+    <span class="cartao-ajuda">soma do que foi feito</span>
+  </div>
+</div>
+
+{% for grupo in grupos %}
+<section class="atendimento">
+  <div class="atendimento-topo">
+    <h2><a href="/odontograma/{{ grupo.paciente_id }}">{{ grupo.nome }}</a></h2>
+    <span class="atendimento-resumo">
+      {{ grupo.quantos }} tratamento{{ '' if grupo.quantos == 1 else 's' }}
+      · <b class="numero">R$ {{ grupo.total | moeda }}</b>
+    </span>
+  </div>
+  <table>
+    <thead>
+      <tr><th>Dente</th><th>Tratamento</th>
+          <th style="text-align:right">Valor</th></tr>
+    </thead>
+    <tbody>
+    {% for item in grupo.itens %}
+      <tr>
+        <td>{{ item.dente or 'boca toda' }}</td>
+        <td>
+          {{ item.procedimento }}
+          {% if item.observacao %}
+            <span class="observacao">{{ item.observacao }}</span>
+          {% endif %}
+        </td>
+        <td style="text-align:right" class="numero">R$ {{ item.valor | moeda }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endfor %}
+
+{% endif %}
+{% endblock %}

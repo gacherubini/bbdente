@@ -40,10 +40,18 @@ def test_o_nome_aparece_em_branco_sobre_a_lateral_roxa():
     assert lateral and "roxo" in lateral.group(1)
 
 
-def test_a_navegacao_tem_as_quatro_abas():
+def test_a_navegacao_tem_as_cinco_abas():
     html = BASE.read_text(encoding="utf-8")
-    for rotulo in ("Pacientes", "Odontograma", "Tratamentos", "Financeiro"):
+    for rotulo in ("Pacientes", "Odontograma", "Atendimentos", "Tratamentos", "Financeiro"):
         assert rotulo in html
+
+
+def test_atendimentos_fica_ao_lado_do_odontograma():
+    """Quem conclui um atendimento cai no odontograma; ver o dia e o passo
+    seguinte, entao as duas abas ficam vizinhas."""
+    html = BASE.read_text(encoding="utf-8")
+    assert html.index('href="/odontograma"') < html.index('href="/atendimentos"')
+    assert html.index('href="/atendimentos"') < html.index('href="/tratamentos"')
 
 
 def test_nenhuma_aba_promete_o_que_ainda_nao_existe():

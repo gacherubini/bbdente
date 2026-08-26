@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, Request
+from datetime import date
+from decimal import Decimal
+
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
@@ -12,11 +15,13 @@ from app.catalogo.service import arvore, convenios
 from app.clinico.prontuario import gerar as gerar_prontuario
 from app.clinico.service import (
     anamnese,
+    atendimentos_do_dia,
+    atendimentos_do_paciente,
     estado_do_odontograma,
     estado_vazio,
-    historico,
     responder,
 )
+from app.pacientes.service import nomes_de
 from app.pacientes.service import obter as obter_paciente
 from app.shared.db import obter_sessao
 from app.templates import templates
@@ -45,7 +50,7 @@ def em_branco(
             "estado": estado_vazio(),
             "catalogo": arvore(sessao, clinica_id=usuario.clinica_id),
             "convenios": convenios(sessao, clinica_id=usuario.clinica_id),
-            "historico": [],
+            "atendimentos": [],
         },
     )
 
@@ -72,12 +77,73 @@ def tela(
             "rascunho": False,
             "estado": estado,
             "catalogo": arvore(sessao, clinica_id=usuario.clinica_id),
-            "historico": historico(
+            "atendimentos": atendimentos_do_paciente(
                 sessao, clinica_id=usuario.clinica_id, paciente_id=paciente_id
             ),
         },
     )
 
+
+DIAS = [
+    "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira",
+    "sexta-feira", "sábado", "domingo",
+]
+
+
+def _dia(bruto: str) -> date:
+    """Data vinda da URL nunca derruba a tela: o que nao for uma data vale hoje.
+
+    Mesma regra do `_inteiro()` do financeiro. Quem digita na barra de endereco
+    erra, e uma tela em branco com 500 nao ensina nada a quem esta atendendo.
+    """
+    try:
+        return date.fromisoformat(bruto)
+    except (TypeError, ValueError):
+        return date.today()
+
+
+@router.get("/atendimentos", response_class=HTMLResponse)
+def tela_atendimentos(
+    request: Request,
+    dia: str = Query(""),
+    usuario: Usuario = Depends(usuario_atual),
+    sessao: Session = Depends(obter_sessao),
+):
+    """O movimento do dia: quem foi atendido e o que foi feito em cada um.
+
+    So o que FOI FEITO. Tratamento planejado para hoje e agenda, e agenda nao
+    existe neste sistema — quem planeja para uma data ve isso no odontograma do
+    paciente, nao aqui.
+    """
+    escolhido = _dia(dia)
+    grupos = atendimentos_do_dia(
+        sessao, clinica_id=usuario.clinica_id, dia=escolhido
+    )
+    # Fronteira de modulo: o nome do paciente vem pela service dele, numa consulta
+    # so para a lista inteira. `clinico` nunca faz JOIN em `paciente`.
+    nomes = nomes_de(
+        sessao,
+        clinica_id=usuario.clinica_id,
+        paciente_ids=[grupo["paciente_id"] for grupo in grupos],
+    )
+    for grupo in grupos:
+        grupo["nome"] = nomes.get(grupo["paciente_id"], "—")
+    grupos.sort(key=lambda grupo: grupo["nome"])
+
+    return templates.TemplateResponse(
+        request,
+        "atendimentos.html",
+        {
+            "aba": "atendimentos",
+            "dia": escolhido,
+            "dia_da_semana": DIAS[escolhido.weekday()],
+            "hoje": date.today(),
+            "grupos": grupos,
+            "pacientes": len(grupos),
+            "tratamentos": sum(grupo["quantos"] for grupo in grupos),
+            "total": sum((grupo["total"] for grupo in grupos), Decimal("0.00")),
+        },
+    )
 
 @router.get("/anamnese/{paciente_id}", response_class=HTMLResponse)
 def tela_anamnese(
