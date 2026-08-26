@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}BDDente{% endblock %}</title>
+  <link rel="stylesheet" href="/static/bddente.css">
+</head>
+<body>
+  <div class="app">
+    <nav class="lateral">
+      <div class="marca">BD<span>Dente</span></div>
+      <ul class="navegacao">
+        <li><a href="/pacientes" class="{{ 'ativo' if aba == 'pacientes' }}">Pacientes</a></li>
+        <li><a href="/odontograma" class="{{ 'ativo' if aba == 'odontograma' }}">Odontograma</a></li>
+        <li><a href="/tratamentos" class="{{ 'ativo' if aba == 'tratamentos' }}">Tratamentos</a></li>
+        <li><span class="desativado">Financeiro <b>em breve</b></span></li>
+      </ul>
+      <form method="post" action="/logout" class="sair">
+        <button type="submit">Sair</button>
+      </form>
+    </nav>
+    <main class="principal">
+      {% block conteudo %}{% endblock %}
+    </main>
+  </div>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
