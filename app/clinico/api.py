@@ -215,7 +215,8 @@ def concluir_atendimento(
                 convenio_id=corpo.novo.convenio_id,
             )
         except ValueError as erro:
-            sessao.rollback()
+            # Inalcancavel na pratica: o nome ja foi conferido acima. Sem
+            # `rollback` de proposito — a sessao morre sem commit e nada persiste.
             raise HTTPException(status_code=422, detail=str(erro)) from erro
         paciente_id = criado.id
 
@@ -229,10 +230,8 @@ def concluir_atendimento(
             numero_odontograma=corpo.numero_odontograma,
         )
     except EscopoInvalido as erro:
-        sessao.rollback()
         raise HTTPException(status_code=422, detail=str(erro)) from erro
     except LookupError as erro:
-        sessao.rollback()
         raise HTTPException(status_code=404, detail=str(erro)) from erro
 
     sessao.commit()

@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block titulo %}{{ procedimento.nome }} — BDDente{% endblock %}
+{% block conteudo %}
+<h1>{{ procedimento.nome }}</h1>
+<p class="legenda-topo">
+  Código {{ procedimento.codigo }} ·
+  <a href="/tratamentos">voltar para o catálogo</a>
+</p>
+
+<form class="cartao-form" method="post" action="/tratamentos/{{ procedimento.id }}">
+  {% if erro %}<p class="painel-erro">{{ erro }}</p>{% endif %}
+
+  <div class="linha-dupla">
+    <div>
+      <label class="rotulo" for="codigo">Código</label>
+      <input type="text" id="codigo" name="codigo" required
+             value="{{ procedimento.codigo }}">
+    </div>
+    <div>
+      <label class="rotulo" for="categoria_id">Categoria</label>
+      <select id="categoria_id" name="categoria_id" required>
+        {% for categoria in categorias %}
+          <option value="{{ categoria.id }}"
+                  {{ 'selected' if categoria.id == procedimento.categoria_id }}>
+            {{ categoria.nome }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <label class="rotulo" for="nome">Nome</label>
+  <input type="text" id="nome" name="nome" required value="{{ procedimento.nome }}">
+
+  <label class="rotulo">Onde costuma ser</label>
+  <div class="escopos">
+    {% for escopo in escopos %}
+      <label>
+        <input type="radio" name="escopo_sugerido" value="{{ escopo.value }}"
+               {{ 'checked' if escopo == procedimento.escopo_sugerido }}>
+        {{ {'BOCA':'Boca toda','DENTE':'Dente inteiro','REGIOES':'Regiões'}[escopo.value] }}
+      </label>
+    {% endfor %}
+  </div>
+
+  <fieldset class="regioes">
+    <legend>Regiões sugeridas</legend>
+    {% for r in regioes %}
+      <label>
+        <input type="checkbox" name="regiao" value="{{ r.value }}"
+               {{ 'checked' if r in (procedimento.regioes_sugeridas or []) }}>
+        {{ r.value | lower | replace('_', ' ') }}
+      </label>
+    {% endfor %}
+  </fieldset>
+
+  <label class="rotulo">Situação</label>
+  <div class="escopos">
+    {# Inativar nao apaga: some das listas novas e continua desenhado no
+       historico de quem ja recebeu o tratamento. #}
+    <label>
+      <input type="checkbox" name="ativo" value="1"
+             {{ 'checked' if procedimento.ativo }}>
+      Ativo — aparece na lista de lançamento
+    </label>
+  </div>
+
+  <label class="rotulo">Preço vigente</label>
+  {% if precos %}
+    <ul class="precos-vigentes">
+      {% for linha in precos %}
+        <li><span>{{ linha.convenio }}</span>
+            <span class="numero">R$ {{ linha.valor | moeda }}</span></li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="painel-dica">Este tratamento ainda não tem tabela de preço.</p>
+  {% endif %}
+
+  <div class="linha-dupla">
+    <div>
+      <label class="rotulo" for="convenio_id">Novo preço para</label>
+      <select id="convenio_id" name="convenio_id">
+        <option value="">— não mexer —</option>
+        {% for convenio in convenios %}
+          <option value="{{ convenio.id }}">{{ convenio.nome }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="rotulo" for="valor">Valor (R$)</label>
+      <input type="text" id="valor" name="valor" inputmode="decimal" placeholder="0,00">
+    </div>
+  </div>
+  <p class="painel-dica">
+    Preço antigo não é apagado: fica guardado com a data em que valia, para o
+    histórico continuar explicável.
+  </p>
+
+  <div class="acoes-form">
+    <a class="botao-secundario" href="/tratamentos">Cancelar</a>
+    <button type="submit" class="primario">Salvar</button>
+  </div>
+</form>
+{% endblock %}

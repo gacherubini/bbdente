@@ -593,3 +593,15 @@ a.botao-secundario:hover { background: var(--roxo-cl); }
   min-width: 190px;
 }
 .mais-precos li { display: flex; justify-content: space-between; gap: 12px; }
+
+/* --- precos vigentes na edicao do tratamento --- */
+.precos-vigentes {
+  list-style: none;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  font-size: 13px;
+}
+.precos-vigentes li { display: flex; justify-content: space-between; gap: 12px; }
+.precos-vigentes li + li { margin-top: 5px; }

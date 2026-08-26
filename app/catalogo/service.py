@@ -135,6 +135,32 @@ class CodigoRepetido(ValueError):
     """Ja existe outro tratamento com este codigo nesta clinica."""
 
 
+def validar_procedimento(
+    sessao: Session,
+    *,
+    clinica_id: int,
+    procedimento_id: int | None,
+    codigo: str,
+    nome: str,
+) -> None:
+    """Recusa ANTES de qualquer escrita.
+
+    Separada de `salvar_procedimento` para a rota poder conferir sem sujar a
+    sessao: sem isto, o unico jeito de desfazer seria um `rollback`, que joga
+    fora tambem o que a transacao ja tinha legitimamente dentro.
+    """
+    if not nome.strip():
+        raise ValueError("o nome do tratamento e obrigatorio")
+    conflito = sessao.scalars(
+        select(Procedimento).where(
+            Procedimento.clinica_id == clinica_id,
+            Procedimento.codigo == codigo.strip(),
+        )
+    ).first()
+    if conflito is not None and conflito.id != procedimento_id:
+        raise CodigoRepetido(f"o codigo {codigo.strip()} ja e usado por '{conflito.nome}'")
+
+
 def salvar_procedimento(
     sessao: Session,
     *,
@@ -150,13 +176,13 @@ def salvar_procedimento(
     ativo: bool = True,
 ) -> Procedimento:
     codigo = codigo.strip()
-    conflito = sessao.scalars(
-        select(Procedimento).where(
-            Procedimento.clinica_id == clinica_id, Procedimento.codigo == codigo
-        )
-    ).first()
-    if conflito is not None and conflito.id != procedimento_id:
-        raise CodigoRepetido(f"o codigo {codigo} ja e usado por '{conflito.nome}'")
+    validar_procedimento(
+        sessao,
+        clinica_id=clinica_id,
+        procedimento_id=procedimento_id,
+        codigo=codigo,
+        nome=nome,
+    )
 
     if procedimento_id is None:
         procedimento = Procedimento(clinica_id=clinica_id, codigo=codigo)
@@ -214,12 +240,34 @@ def definir_preco(
     vigente_desde: date | None = None,
 ) -> Preco:
     """Cria uma nova vigencia. O preco antigo NUNCA e sobrescrito: um lancamento
-    de 2015 foi cobrado ao preco de 2015, e o extrato tem de continuar explicavel."""
+    de 2015 foi cobrado ao preco de 2015, e o extrato tem de continuar explicavel.
+
+    Salvar o mesmo valor que ja vale nao grava nada e devolve a vigencia atual —
+    senao a tabela de precos vira o registro de quantas vezes alguem clicou em
+    salvar.
+    """
+    valor = Decimal(valor).quantize(Decimal("0.01"))
+    if valor < 0:
+        raise ValueError("preco nao pode ser negativo")
+
+    quando = vigente_desde or date.today()
+    atual = sessao.scalars(
+        select(Preco)
+        .where(
+            Preco.procedimento_id == procedimento_id,
+            Preco.convenio_id == convenio_id,
+            Preco.vigente_desde <= quando,
+        )
+        .order_by(Preco.vigente_desde.desc(), Preco.id.desc())
+    ).first()
+    if atual is not None and atual.valor == valor:
+        return atual
+
     preco = Preco(
         procedimento_id=procedimento_id,
         convenio_id=convenio_id,
-        valor=Decimal(valor).quantize(Decimal("0.01")),
-        vigente_desde=vigente_desde or date.today(),
+        valor=valor,
+        vigente_desde=quando,
     )
     sessao.add(preco)
     sessao.flush()

@@ -19,7 +19,9 @@
           {% set tabela = precos.get(procedimento.id, []) %}
           <tr>
             <td class="codigo">{{ procedimento.codigo }}</td>
-            <td class="nome">{{ procedimento.nome }}</td>
+            <td class="nome">
+              <a href="/tratamentos/{{ procedimento.id }}">{{ procedimento.nome }}</a>
+            </td>
             <td>
               {% if procedimento.escopo_sugerido == 'BOCA' %}Boca toda
               {% elif procedimento.escopo_sugerido == 'DENTE' %}Dente inteiro
