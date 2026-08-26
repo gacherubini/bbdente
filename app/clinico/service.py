@@ -666,3 +666,91 @@ def editar_lancamento(
         },
     )
     return lancamento
+
+
+# --- producao: o que o financeiro pergunta a este modulo -----------------------
+#
+# O modulo financeiro nunca consulta `lancamento` direto. Estas funcoes sao a
+# fronteira que ele usa, e cada uma resolve tudo numa consulta agregada — sao
+# 44.812 lancamentos, e um laco em Python sobre eles derruba a tela.
+
+
+def _realizados_no_periodo(clinica_id: int, de: date, ate: date):
+    return (
+        Lancamento.clinica_id == clinica_id,
+        Lancamento.status == StatusLancamento.REALIZADO,
+        Lancamento.excluido_em.is_(None),
+        Lancamento.data_realizada >= de,
+        Lancamento.data_realizada <= ate,
+    )
+
+
+def producao(sessao: Session, *, clinica_id: int, de: date, ate: date) -> dict:
+    """Quanto de tratamento foi FEITO no periodo, e quantos foram.
+
+    Planejado nao entra: produzido e o que aconteceu, nao o que foi prometido.
+    """
+    soma, quantos = sessao.execute(
+        select(
+            func.coalesce(func.sum(Lancamento.valor), 0), func.count(Lancamento.id)
+        ).where(*_realizados_no_periodo(clinica_id, de, ate))
+    ).one()
+    return {
+        "valor": Decimal(soma).quantize(Decimal("0.01")),
+        "tratamentos": quantos,
+    }
+
+
+def producao_por_dia(
+    sessao: Session, *, clinica_id: int, de: date, ate: date
+) -> dict[date, int]:
+    """Quantos tratamentos foram feitos em cada dia do periodo."""
+    return {
+        dia: quantos
+        for dia, quantos in sessao.execute(
+            select(Lancamento.data_realizada, func.count(Lancamento.id))
+            .where(*_realizados_no_periodo(clinica_id, de, ate))
+            .group_by(Lancamento.data_realizada)
+        ).all()
+    }
+
+
+def producao_por_procedimento(
+    sessao: Session, *, clinica_id: int, de: date, ate: date
+) -> dict[int, Decimal]:
+    """Quanto cada tratamento rendeu no periodo, por id de procedimento.
+
+    Devolve id, nao nome de categoria: quem sabe a que categoria um procedimento
+    pertence e o catalogo, e perguntar a ele preserva a fronteira.
+    """
+    return {
+        procedimento_id: Decimal(soma).quantize(Decimal("0.01"))
+        for procedimento_id, soma in sessao.execute(
+            select(
+                Lancamento.procedimento_id, func.coalesce(func.sum(Lancamento.valor), 0)
+            )
+            .where(*_realizados_no_periodo(clinica_id, de, ate))
+            .group_by(Lancamento.procedimento_id)
+        ).all()
+    }
+
+
+def producao_por_paciente(
+    sessao: Session, *, clinica_id: int, de: date, ate: date
+) -> dict[int, Decimal]:
+    """Quanto cada paciente teve de tratamento feito no periodo.
+
+    Devolve id, nao convenio: quem sabe o convenio de um paciente e o modulo
+    pacientes.
+    """
+    return {
+        paciente_id: Decimal(soma).quantize(Decimal("0.01"))
+        for paciente_id, soma in sessao.execute(
+            select(
+                Odontograma.paciente_id, func.coalesce(func.sum(Lancamento.valor), 0)
+            )
+            .join(Odontograma, Lancamento.odontograma_id == Odontograma.id)
+            .where(*_realizados_no_periodo(clinica_id, de, ate))
+            .group_by(Odontograma.paciente_id)
+        ).all()
+    }

@@ -1,0 +1,245 @@
+"""Fronteira publica do modulo financeiro.
+
+Este modulo NAO consulta `lancamento` nem `paciente` direto: pergunta a
+`clinico.service` e a `pacientes.service`. Da tabela `parcela` ele e o dono.
+
+Dois numeros que parecem o mesmo e nao sao:
+
+- **Recebido** e dinheiro que entrou no periodo (`parcela.valor_pago`).
+- **Produzido** e tratamento feito no periodo (`lancamento.valor`).
+
+Um tratamento feito em marco pode ser pago em julho. As telas mostram os dois
+lado a lado justamente para isso ficar visivel em vez de escondido numa media.
+"""
+
+import calendar
+from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.catalogo.service import categorias_de, nomes_de_convenio
+from app.clinico.service import producao, producao_por_paciente, producao_por_procedimento
+from app.clinico.service import producao_por_dia as producao_por_dia_do_clinico
+from app.financeiro.models import Parcela
+from app.pacientes.service import convenios_de, nomes_de
+
+ZERO = Decimal("0.00")
+
+# Antes de julho de 1994 o dinheiro era Cruzeiro Real; somar aquilo com Real da
+# um numero sem significado. Os graficos comecam depois da poeira baixar.
+ANO_MINIMO = 1995
+
+SEM_CONVENIO = "não informado"
+
+
+@dataclass(frozen=True)
+class Resumo:
+    recebido: Decimal
+    produzido: Decimal
+    a_receber: Decimal
+    tratamentos: int
+
+
+@dataclass(frozen=True)
+class LinhaCobranca:
+    parcela_id: int
+    paciente_id: int
+    paciente: str
+    vencimento: date
+    cobrado: Decimal
+    pago: Decimal
+    saldo: Decimal
+    dias_vencida: int
+
+
+def _vivas(clinica_id: int):
+    return (Parcela.clinica_id == clinica_id, Parcela.excluido_em.is_(None))
+
+
+def _decimal(bruto) -> Decimal:
+    return Decimal(bruto or 0).quantize(Decimal("0.01"))
+
+
+def recebido(sessao: Session, *, clinica_id: int, de: date, ate: date) -> Decimal:
+    """Dinheiro que entrou no periodo. Segue a data do PAGAMENTO, nunca a do
+    vencimento — parcela de 2020 paga hoje e dinheiro de hoje."""
+    return _decimal(
+        sessao.scalars(
+            select(func.coalesce(func.sum(Parcela.valor_pago), 0)).where(
+                *_vivas(clinica_id), Parcela.pago_em >= de, Parcela.pago_em <= ate
+            )
+        ).one()
+    )
+
+
+def a_receber_total(sessao: Session, *, clinica_id: int, ate: date) -> Decimal:
+    """Saldo de tudo que ja venceu: cobrado menos pago.
+
+    E `cobrado - pago`, e nao a soma das parcelas sem data de pagamento, porque
+    7.849 parcelas do historico foram pagas pela METADE — tem data e ainda assim
+    devem. Somar so as sem data esconderia mais da metade da divida.
+    """
+    return _decimal(
+        sessao.scalars(
+            select(
+                func.coalesce(
+                    func.sum(Parcela.valor_cobrado - Parcela.valor_pago), 0
+                )
+            ).where(*_vivas(clinica_id), Parcela.vencimento <= ate)
+        ).one()
+    )
+
+
+def resumo(sessao: Session, *, clinica_id: int, de: date, ate: date) -> Resumo:
+    feito = producao(sessao, clinica_id=clinica_id, de=de, ate=ate)
+    return Resumo(
+        recebido=recebido(sessao, clinica_id=clinica_id, de=de, ate=ate),
+        produzido=feito["valor"],
+        a_receber=a_receber_total(sessao, clinica_id=clinica_id, ate=ate),
+        tratamentos=feito["tratamentos"],
+    )
+
+
+def recebido_por_mes(sessao: Session, *, clinica_id: int, ano: int) -> list[Decimal]:
+    """Doze posicoes, janeiro a dezembro. Mes sem movimento vem zero, nao some —
+    buraco no meio do grafico e pior que barra baixa."""
+    meses = [ZERO] * 12
+    linhas = sessao.execute(
+        select(
+            func.extract("month", Parcela.pago_em),
+            func.coalesce(func.sum(Parcela.valor_pago), 0),
+        )
+        .where(
+            *_vivas(clinica_id),
+            Parcela.pago_em >= date(ano, 1, 1),
+            Parcela.pago_em <= date(ano, 12, 31),
+        )
+        .group_by(func.extract("month", Parcela.pago_em))
+    ).all()
+    for mes, soma in linhas:
+        meses[int(mes) - 1] = _decimal(soma)
+    return meses
+
+
+def producao_por_dia(
+    sessao: Session, *, clinica_id: int, ano: int, mes: int
+) -> list[int]:
+    """Um numero por dia do mes — 28, 29, 30 ou 31 posicoes, conforme o mes."""
+    ultimo = calendar.monthrange(ano, mes)[1]
+    por_dia = producao_por_dia_do_clinico(
+        sessao, clinica_id=clinica_id, de=date(ano, mes, 1), ate=date(ano, mes, ultimo)
+    )
+    return [por_dia.get(date(ano, mes, dia), 0) for dia in range(1, ultimo + 1)]
+
+
+def _fatias(soma_por_nome: dict[str, Decimal]) -> list[tuple[str, Decimal]]:
+    """Da maior para a menor. Fatia sem valor nenhum nao vira fatia."""
+    return sorted(
+        ((nome, valor) for nome, valor in soma_por_nome.items() if valor > ZERO),
+        key=lambda par: (-par[1], par[0]),
+    )
+
+
+def producao_por_categoria(
+    sessao: Session, *, clinica_id: int, de: date, ate: date
+) -> list[tuple[str, Decimal]]:
+    """Quanto cada categoria de tratamento rendeu no periodo."""
+    por_procedimento = producao_por_procedimento(
+        sessao, clinica_id=clinica_id, de=de, ate=ate
+    )
+    categorias = categorias_de(
+        sessao, clinica_id=clinica_id, procedimento_ids=por_procedimento
+    )
+    soma: dict[str, Decimal] = {}
+    for procedimento_id, valor in por_procedimento.items():
+        nome = categorias.get(procedimento_id, "sem categoria")
+        soma[nome] = soma.get(nome, ZERO) + valor
+    return _fatias(soma)
+
+
+def producao_por_convenio(
+    sessao: Session, *, clinica_id: int, de: date, ate: date
+) -> list[tuple[str, Decimal]]:
+    """Quanto veio de cada convenio no periodo, pelo convenio do paciente."""
+    por_paciente = producao_por_paciente(sessao, clinica_id=clinica_id, de=de, ate=ate)
+    convenio_do_paciente = convenios_de(
+        sessao, clinica_id=clinica_id, paciente_ids=por_paciente
+    )
+    nomes = nomes_de_convenio(
+        sessao,
+        clinica_id=clinica_id,
+        convenio_ids={c for c in convenio_do_paciente.values() if c},
+    )
+    soma: dict[str, Decimal] = {}
+    for paciente_id, valor in por_paciente.items():
+        convenio_id = convenio_do_paciente.get(paciente_id)
+        nome = nomes.get(convenio_id, SEM_CONVENIO) if convenio_id else SEM_CONVENIO
+        soma[nome] = soma.get(nome, ZERO) + valor
+    return _fatias(soma)
+
+
+def a_receber(
+    sessao: Session, *, clinica_id: int, ate: date, desde: date
+) -> list[LinhaCobranca]:
+    """A lista de cobranca: o que venceu ate `ate`, desde `desde`, e tem saldo.
+
+    O corte por `desde` existe porque R$ 3,4 milhoes em aberto acumulados desde
+    1996 nao sao cobranca, sao historia — e uma lista que comeca em 1996 nunca
+    chega no que da para cobrar hoje.
+    """
+    parcelas = list(
+        sessao.scalars(
+            select(Parcela)
+            .where(
+                *_vivas(clinica_id),
+                Parcela.vencimento <= ate,
+                Parcela.vencimento >= desde,
+                Parcela.valor_cobrado > Parcela.valor_pago,
+            )
+            .order_by(Parcela.vencimento, Parcela.id)
+        )
+    )
+    # Uma consulta para todos os nomes: sao milhares de linhas no banco real, e
+    # uma consulta por linha e a tela travando sozinha.
+    nomes = nomes_de(
+        sessao, clinica_id=clinica_id, paciente_ids={p.paciente_id for p in parcelas}
+    )
+    return [
+        LinhaCobranca(
+            parcela_id=p.id,
+            paciente_id=p.paciente_id,
+            paciente=nomes.get(p.paciente_id, "—"),
+            vencimento=p.vencimento,
+            cobrado=p.valor_cobrado,
+            pago=p.valor_pago,
+            saldo=p.saldo,
+            dias_vencida=(ate - p.vencimento).days,
+        )
+        for p in parcelas
+    ]
+
+
+def anos_com_movimento(sessao: Session, *, clinica_id: int) -> list[int]:
+    """Os anos que tem dinheiro registrado, do mais recente para o mais antigo.
+
+    Alimenta o seletor da tela, e por isso e peneirado nos dois extremos:
+
+    - **antes de 1995 sai** porque o dinheiro era outra moeda, e somar Cruzeiro
+      com Real da um numero que nao significa nada;
+    - **depois de hoje sai** porque dinheiro recebido e fato, nao promessa. O
+      historico tem uma parcela com pagamento no ano 2203 — erro de digitacao de
+      1996 que ninguem corrigiu. A linha continua no banco, marcada; o que ela
+      nao pode e virar uma opcao de menu.
+    """
+    ano = func.extract("year", Parcela.pago_em)
+    anos = sessao.scalars(
+        select(ano)
+        .where(*_vivas(clinica_id), Parcela.pago_em.isnot(None))
+        .distinct()
+        .order_by(ano.desc())
+    ).all()
+    limite = date.today().year
+    return [int(a) for a in anos if ANO_MINIMO <= int(a) <= limite]

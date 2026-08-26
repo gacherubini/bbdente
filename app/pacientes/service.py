@@ -444,3 +444,38 @@ def atualizar(
         },
     )
     return paciente
+
+
+def convenios_de(
+    sessao: Session, *, clinica_id: int, paciente_ids: Iterable[int]
+) -> dict[int, int | None]:
+    """O convenio de cada paciente. Uma consulta para a lista inteira."""
+    ids = list(paciente_ids)
+    if not ids:
+        return {}
+    return {
+        paciente_id: convenio_id
+        for paciente_id, convenio_id in sessao.execute(
+            select(Paciente.id, Paciente.convenio_id).where(
+                Paciente.id.in_(ids), Paciente.clinica_id == clinica_id
+            )
+        ).all()
+    }
+
+
+def nomes_de(
+    sessao: Session, *, clinica_id: int, paciente_ids: Iterable[int]
+) -> dict[int, str]:
+    """O nome de cada paciente. Uma consulta para a lista inteira — a lista de
+    cobranca tem milhares de linhas, e uma consulta por linha trava a tela."""
+    ids = list(paciente_ids)
+    if not ids:
+        return {}
+    return {
+        paciente_id: nome
+        for paciente_id, nome in sessao.execute(
+            select(Paciente.id, Paciente.nome).where(
+                Paciente.id.in_(ids), Paciente.clinica_id == clinica_id
+            )
+        ).all()
+    }

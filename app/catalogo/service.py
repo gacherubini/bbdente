@@ -302,3 +302,21 @@ def preco_de(
         .order_by(Preco.vigente_desde.desc(), Preco.id.desc())
     ).first()
     return preco.valor if preco else None
+
+
+def categorias_de(
+    sessao: Session, *, clinica_id: int, procedimento_ids: Iterable[int]
+) -> dict[int, str]:
+    """A categoria de cada procedimento, pelo nome. Uma consulta para a lista
+    inteira — outros modulos guardam procedimento_id e perguntam aqui."""
+    ids = list(procedimento_ids)
+    if not ids:
+        return {}
+    return {
+        procedimento_id: nome
+        for procedimento_id, nome in sessao.execute(
+            select(Procedimento.id, Categoria.nome)
+            .join(Categoria, Procedimento.categoria_id == Categoria.id)
+            .where(Procedimento.id.in_(ids), Procedimento.clinica_id == clinica_id)
+        ).all()
+    }
