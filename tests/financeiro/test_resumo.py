@@ -150,14 +150,50 @@ def test_tratamento_apenas_planejado_nao_conta_como_produzido(sessao, cenario):
     assert r.tratamentos == 0
 
 
-def test_a_receber_conta_o_saldo_do_que_ja_venceu(sessao, cenario):
+def test_a_receber_conta_o_saldo_do_que_venceu_no_periodo(sessao, cenario):
     c = cenario
-    cobrar(sessao, c, c["amanda"], date(2026, 3, 1), "300.00", "50.00", date(2026, 4, 1))
-    cobrar(sessao, c, c["joao"], date(2026, 4, 1), "200.00")
-    # ainda nao venceu no fim de maio: fica de fora
-    cobrar(sessao, c, c["joao"], date(2026, 9, 1), "700.00")
+    cobrar(sessao, c, c["amanda"], date(2026, 5, 5), "300.00", "50.00", date(2026, 5, 6))
+    cobrar(sessao, c, c["joao"], date(2026, 5, 20), "200.00")
     r = resumo(sessao, clinica_id=c["clinica"].id, de=MAIO[0], ate=MAIO[1])
     assert r.a_receber == Decimal("450.00")
+
+
+def test_a_receber_nao_arrasta_a_divida_dos_meses_anteriores(sessao, cenario):
+    """O numero e do mes, como os outros tres cartoes da tela.
+
+    Somar tudo desde 1996 punha R$ 2 milhoes de carne do Dentalis num cartao
+    ao lado de tres numeros mensais. Aquele saldo nao muda e nao vai ser
+    recebido; ficava so afogando o que aconteceu no mes.
+    """
+    c = cenario
+    cobrar(sessao, c, c["amanda"], date(1998, 7, 1), "1200.00")
+    cobrar(sessao, c, c["joao"], date(2026, 4, 30), "200.00")
+    r = resumo(sessao, clinica_id=c["clinica"].id, de=MAIO[0], ate=MAIO[1])
+    assert r.a_receber == Decimal("0.00")
+
+
+def test_a_receber_ignora_o_que_ainda_nao_venceu(sessao, cenario):
+    c = cenario
+    cobrar(sessao, c, c["joao"], date(2026, 6, 1), "700.00")
+    r = resumo(sessao, clinica_id=c["clinica"].id, de=MAIO[0], ate=MAIO[1])
+    assert r.a_receber == Decimal("0.00")
+
+
+def test_a_receber_ignora_parcela_substituida(sessao, cenario):
+    """Os degraus do carne do Dentalis: a mesma divida regravada a cada pagamento."""
+    c = cenario
+    degrau = cobrar(sessao, c, c["amanda"], date(2026, 5, 10), "1200.00")
+    degrau.substituida = True
+    sessao.flush()
+    r = resumo(sessao, clinica_id=c["clinica"].id, de=MAIO[0], ate=MAIO[1])
+    assert r.a_receber == Decimal("0.00")
+
+
+def test_a_receber_zera_quando_a_parcela_do_mes_foi_quitada(sessao, cenario):
+    c = cenario
+    cobrar(sessao, c, c["amanda"], date(2026, 5, 5), "300.00", "300.00", date(2026, 5, 9))
+    r = resumo(sessao, clinica_id=c["clinica"].id, de=MAIO[0], ate=MAIO[1])
+    assert r.a_receber == Decimal("0.00")
 
 
 def test_parcela_excluida_nao_conta_em_lugar_nenhum(sessao, cenario):

@@ -106,6 +106,37 @@ def test_a_tela_diz_o_que_cada_numero_e(sessao, cliente, cenario):
         assert rotulo in html
 
 
+def test_o_cartao_a_receber_promete_o_mes_e_nao_o_acumulado(sessao, cliente, cenario):
+    """O rotulo e o calculo tem que dizer a mesma coisa.
+
+    Enquanto o calculo somava desde 1996, o rotulo dizia "tudo que venceu e nao
+    foi pago" — literalmente verdade, e ainda assim ilegivel ao lado de tres
+    numeros mensais. Se um dos dois voltar atras sem o outro, este teste cai.
+    """
+    com_movimento(sessao, cenario)
+    html = cliente.get("/financeiro?ano=2026&mes=5").text
+    assert "venceu no mês e não foi pago" in html
+    assert "tudo que venceu" not in html
+
+
+def test_divida_de_meses_anteriores_nao_aparece_no_cartao_do_mes(
+    sessao, cliente, cenario
+):
+    clinica, _, paciente, _ = cenario
+    # Um valor que nao aparece em nenhum outro numero da tela: se ele vazar para
+    # o HTML, so pode ter vindo do cartao "a receber".
+    sessao.add(
+        Parcela(
+            clinica_id=clinica.id, paciente_id=paciente.id, numero="01/01",
+            vencimento=date(1998, 7, 1), valor_cobrado=Decimal("7777.77"),
+        )
+    )
+    com_movimento(sessao, cenario)
+    html = cliente.get("/financeiro?ano=2026&mes=5").text
+    assert "1.200,00" in html, "o recebido de maio continua na tela"
+    assert "7.777,77" not in html
+
+
 def test_os_numeros_do_mes_aparecem_formatados(sessao, cliente, cenario):
     com_movimento(sessao, cenario)
     html = cliente.get("/financeiro?ano=2026&mes=5").text

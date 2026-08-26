@@ -81,10 +81,19 @@ def recebido(sessao: Session, *, clinica_id: int, de: date, ate: date) -> Decima
     )
 
 
-def a_receber_total(sessao: Session, *, clinica_id: int, ate: date) -> Decimal:
-    """Saldo de tudo que ja venceu: cobrado menos pago.
+def a_receber_total(
+    sessao: Session, *, clinica_id: int, de: date, ate: date
+) -> Decimal:
+    """Saldo do que venceu DENTRO do periodo: cobrado menos pago.
 
-    Duas correcoes que mudam muito o numero, e as duas vem do dado real:
+    E um numero do mes, na mesma regua dos outros tres do cartao. Ate 26/08/2026
+    ele somava tudo desde 1996 (so `vencimento <= ate`, sem piso) e dava R$ 2
+    milhoes — o carne do Dentalis inteiro, ao lado de tres numeros mensais. Nada
+    que a clinica faz hoje entra ali: `registrar_recebimento()` cria a parcela ja
+    quitada. Era um saldo historico que nao muda e nao vai ser recebido, afogando
+    o que aconteceu no mes.
+
+    Duas regras do calculo continuam, e as duas vem do dado real:
 
     - E `cobrado - pago`, e nao a soma das parcelas sem data de pagamento: 7.849
       parcelas do historico foram pagas pela METADE — tem data e ainda assim
@@ -92,6 +101,9 @@ def a_receber_total(sessao: Session, *, clinica_id: int, ate: date) -> Decimal:
     - As parcelas `substituida` ficam de fora. O Dentalis registrava carne
       regravando o saldo a cada pagamento, e somar todas as linhas do mesmo
       carne contava a mesma divida sete vezes.
+
+    A divida acumulada nao sumiu do sistema: quem quer ve-la abre a lista de
+    cobranca logo abaixo, que tem o corte proprio dela (`MESES_DE_COBRANCA`).
     """
     return _decimal(
         sessao.scalars(
@@ -102,6 +114,7 @@ def a_receber_total(sessao: Session, *, clinica_id: int, ate: date) -> Decimal:
             ).where(
                 *_vivas(clinica_id),
                 Parcela.substituida.is_(False),
+                Parcela.vencimento >= de,
                 Parcela.vencimento <= ate,
             )
         ).one()
@@ -113,7 +126,7 @@ def resumo(sessao: Session, *, clinica_id: int, de: date, ate: date) -> Resumo:
     return Resumo(
         recebido=recebido(sessao, clinica_id=clinica_id, de=de, ate=ate),
         produzido=feito["valor"],
-        a_receber=a_receber_total(sessao, clinica_id=clinica_id, ate=ate),
+        a_receber=a_receber_total(sessao, clinica_id=clinica_id, de=de, ate=ate),
         tratamentos=feito["tratamentos"],
     )
 
