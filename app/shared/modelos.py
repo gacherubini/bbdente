@@ -9,6 +9,13 @@ fronteira de modulo.
 from app.auth import models as auth_models
 from app.catalogo import models as catalogo_models
 from app.clinico import models as clinico_models
+from app.financeiro import models as financeiro_models
 from app.pacientes import models as pacientes_models
 
-__all__ = ["auth_models", "catalogo_models", "clinico_models", "pacientes_models"]
+__all__ = [
+    "auth_models",
+    "catalogo_models",
+    "clinico_models",
+    "financeiro_models",
+    "pacientes_models",
+]

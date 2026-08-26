@@ -17,6 +17,7 @@ TABELAS_ESPERADAS = {
     "categoria", "convenio", "procedimento", "preco",
     "odontograma", "lancamento", "lancamento_regiao", "condicao",
     "pergunta_anamnese", "resposta_anamnese", "observacao_clinica",
+    "parcela",
 }
 
 
