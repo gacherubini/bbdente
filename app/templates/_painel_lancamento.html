@@ -1,0 +1,77 @@
+<aside class="painel" id="painel">
+  <div class="painel-alvo" id="painel-alvo">
+    Clique num dente para começar
+  </div>
+
+  <label class="rotulo" for="painel-categoria">Categoria</label>
+  <select id="painel-categoria">
+    <option value="">Escolha…</option>
+    {% for categoria in catalogo %}
+      <option value="{{ categoria.id }}">{{ categoria.nome }}</option>
+    {% endfor %}
+  </select>
+
+  <label class="rotulo" for="painel-procedimento">Tratamento</label>
+  <select id="painel-procedimento" disabled>
+    <option value="">Escolha a categoria primeiro…</option>
+    {% for categoria in catalogo %}
+      {% for procedimento in categoria.procedimentos %}
+        <option value="{{ procedimento.id }}" data-categoria="{{ categoria.id }}" hidden>
+          {{ procedimento.nome }}
+        </option>
+      {% endfor %}
+    {% endfor %}
+  </select>
+
+  <label class="rotulo">Onde</label>
+  <div class="escopos" id="painel-escopos">
+    <label><input type="radio" name="escopo" value="BOCA"> Boca toda</label>
+    <label><input type="radio" name="escopo" value="DENTE"> Dente inteiro</label>
+    <label><input type="radio" name="escopo" value="REGIOES" checked> Regiões</label>
+  </div>
+
+  <fieldset class="regioes" id="painel-regioes">
+    <legend>Coroa</legend>
+    <label><input type="checkbox" name="regiao" value="MESIAL"> Mesial</label>
+    <label><input type="checkbox" name="regiao" value="DISTAL"> Distal</label>
+    <label><input type="checkbox" name="regiao" value="VESTIBULAR"> Vestibular</label>
+    <label><input type="checkbox" name="regiao" value="LINGUAL"> Lingual</label>
+    <label><input type="checkbox" name="regiao" value="OCLUSAL">
+      <span id="rotulo-oclusal">Oclusal</span></label>
+    <legend class="legenda-raiz">Raiz</legend>
+    <label><input type="checkbox" name="regiao" value="CANAL_MESIAL"> Canal mesial</label>
+    <label><input type="checkbox" name="regiao" value="CANAL_CENTRAL"> Canal central</label>
+    <label><input type="checkbox" name="regiao" value="CANAL_DISTAL"> Canal distal</label>
+  </fieldset>
+
+  <label class="rotulo">Situação</label>
+  <div class="escopos">
+    <label><input type="radio" name="status" value="PLANEJADO" checked> Planejado</label>
+    <label><input type="radio" name="status" value="REALIZADO"> Realizado</label>
+  </div>
+
+  <div class="linha-dupla">
+    <div>
+      <label class="rotulo" for="painel-data">Data</label>
+      <input type="date" id="painel-data">
+    </div>
+    <div>
+      <label class="rotulo" for="painel-valor">Valor (R$)</label>
+      <input type="text" id="painel-valor" inputmode="decimal" placeholder="0,00">
+    </div>
+  </div>
+
+  <label class="rotulo" for="painel-observacao">Observação</label>
+  <input type="text" id="painel-observacao" placeholder="opcional">
+
+  <p class="painel-erro" id="painel-erro" hidden></p>
+
+  <button type="button" class="primario" id="painel-lancar" disabled>Lançar</button>
+  <button type="button" class="secundario" id="painel-repetir" disabled>
+    Repetir em outro dente
+  </button>
+  <p class="painel-dica" id="painel-dica" hidden>
+    Modo repetir ligado — cada clique no odontograma lança este mesmo tratamento.
+    <a href="#" id="painel-parar-repetir">parar</a>
+  </p>
+</aside>
