@@ -66,12 +66,31 @@
 
   <p class="painel-erro" id="painel-erro" hidden></p>
 
-  <button type="button" class="primario" id="painel-lancar" disabled>Lançar</button>
+  <button type="button" class="primario" id="painel-lancar" disabled>
+    {{ 'Adicionar ao atendimento' if rascunho else 'Lançar' }}
+  </button>
   <button type="button" class="secundario" id="painel-repetir" disabled>
     Repetir em outro dente
   </button>
   <p class="painel-dica" id="painel-dica" hidden>
-    Modo repetir ligado — cada clique no odontograma lança este mesmo tratamento.
+    Modo repetir ligado — cada clique no odontograma
+    {{ 'acrescenta' if rascunho else 'lança' }} este mesmo tratamento.
     <a href="#" id="painel-parar-repetir">parar</a>
   </p>
+
+  {% if rascunho %}
+  <div class="atendimento" id="atendimento">
+    <p class="rotulo">Neste atendimento</p>
+    <ul class="atendimento-itens" id="atendimento-itens"></ul>
+    <p class="atendimento-vazio" id="atendimento-vazio">
+      Nada marcado ainda.
+    </p>
+    <button type="button" class="primario" id="atendimento-concluir" disabled>
+      Concluir atendimento
+    </button>
+    <p class="painel-dica">
+      Enquanto não concluir, este atendimento fica só neste computador.
+    </p>
+  </div>
+  {% endif %}
 </aside>

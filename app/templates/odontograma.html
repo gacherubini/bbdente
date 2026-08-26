@@ -1,6 +1,17 @@
 {% extends "base.html" %}
-{% block titulo %}{{ estado.paciente.nome }} — BDDente{% endblock %}
+{% block titulo %}
+  {%- if rascunho %}Atendimento novo — BDDente
+  {%- else %}{{ estado.paciente.nome }} — BDDente{% endif %}
+{% endblock %}
 {% block conteudo %}
+{% if rascunho %}
+<h1>Atendimento novo</h1>
+<p class="legenda-topo">
+  Marque o dente e o tratamento — <b>nada foi gravado ainda</b>.
+  No fim você diz de quem é este atendimento.
+  · <a href="/pacientes">lista de pacientes</a>
+</p>
+{% else %}
 <h1>{{ estado.paciente.nome }}</h1>
 <p class="legenda-topo">
   {{ estado.paciente.codigo_legado or '—' }} ·
@@ -8,6 +19,7 @@
   <a href="/anamnese/{{ estado.paciente.id }}">anamnese</a> ·
   <a href="/prontuario/{{ estado.paciente.id }}.pdf">prontuário em PDF</a>
 </p>
+{% endif %}
 
 <div class="odonto-area">
   <div class="odonto-desenho">
@@ -23,6 +35,7 @@
   {% include "_painel_lancamento.html" %}
 </div>
 
+{% if not rascunho %}
 <h2 class="titulo-historico">Histórico</h2>
 <table>
   <thead>
@@ -43,11 +56,15 @@
   {% endfor %}
   </tbody>
 </table>
+{% endif %}
+
+{% if rascunho %}{% include "_concluir_atendimento.html" %}{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script type="application/json" id="estado-inicial">{{ estado | tojson }}</script>
 <script type="application/json" id="catalogo">{{ catalogo | tojson }}</script>
 <script src="/static/odontograma.js"></script>
+{% if rascunho %}<script src="/static/rascunho.js"></script>{% endif %}
 <script src="/static/painel.js"></script>
 {% endblock %}

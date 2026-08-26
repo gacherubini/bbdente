@@ -114,6 +114,7 @@ O `ruff` deste repo usa `select = ["E", "F", "I", "UP", "B"]`. Consequências:
 |---|---|
 | entender o domínio | `docs/superpowers/specs/2026-08-25-bddente-mvp-design.md` |
 | mexer no odontograma | `app/shared/dentes.py`, depois `app/static/odontograma.js` |
+| mexer no atendimento sem paciente | `app/static/rascunho.js` e `app/clinico/api.py` |
 | mexer em lançamento | `app/clinico/service.py` (`lancar`, `estado_do_odontograma`) |
 | mexer na busca de paciente | `app/pacientes/service.py` (`buscar`) |
 | mexer na migração | `migracao/AGENTS.md` |
@@ -133,6 +134,12 @@ Nenhum destes é esquecimento — são escolhas registradas para não virarem su
   desenhados, mas não há tela para registrar condição nova. Isso espera a tradução dos
   309 códigos de ícone do Dentalis.
 - Não há tela de edição de cadastro de paciente. O MVP lê e busca.
+- **O atendimento da boca em branco vive só no navegador** até ser concluído. O
+  menu `Odontograma` abre um odontograma sem dono; os tratamentos marcados ficam
+  em `localStorage` e no `POST /api/atendimento` viram lançamentos de uma vez só.
+  Consequência aceita: rascunho não atravessa computadores, e fechar o navegador
+  antes de concluir perde o que foi marcado. A alternativa — gravar lançamento
+  sem paciente — criaria dado clínico órfão, que é pior.
 - Um usuário só, sem perfis. A `auditoria` já grava `usuario_id`, então acrescentar
   gente depois não muda o schema.
 - Sem paginação: a busca limita a 100 resultados.

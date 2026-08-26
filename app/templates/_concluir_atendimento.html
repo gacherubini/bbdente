@@ -1,0 +1,73 @@
+{# A janela que fecha o atendimento: a unica tela onde o rascunho vira prontuario.
+   Duas saidas — achar quem ja existe, ou cadastrar na hora. Cadastrar mostra o
+   aviso de parecidos antes de gravar, igual a tela de cadastro da recepcao. #}
+<div class="janela" id="janela-concluir" hidden>
+  <div class="janela-caixa" role="dialog" aria-modal="true"
+       aria-labelledby="janela-titulo">
+    <h2 id="janela-titulo">De quem é este atendimento?</h2>
+    <p class="janela-ajuda">
+      <b id="janela-quantos">0</b>
+      <span id="janela-palavra">tratamentos vão</span>
+      para o prontuário de quem você escolher aqui.
+    </p>
+
+    <label class="rotulo" for="janela-busca">Buscar paciente</label>
+    <input type="text" id="janela-busca" autocomplete="off"
+           placeholder="Nome, telefone ou código…">
+    <ul class="janela-achados" id="janela-achados"></ul>
+    <p class="janela-vazio" id="janela-vazio" hidden>
+      Ninguém com esse nome. Se for a primeira vez dessa pessoa aqui,
+      cadastre logo abaixo.
+    </p>
+
+    <details class="janela-novo">
+      <summary>Cadastrar paciente novo</summary>
+
+      <div class="parecidos" id="janela-parecidos" hidden>
+        <p class="parecidos-titulo">Já existe cadastro parecido</p>
+        <p class="parecidos-ajuda">
+          Se for a mesma pessoa, escolha ela na busca acima em vez de criar outro
+          cadastro.
+        </p>
+        <ul id="janela-parecidos-lista"></ul>
+      </div>
+
+      <label class="rotulo" for="janela-nome">Nome</label>
+      <input type="text" id="janela-nome" maxlength="160" placeholder="Nome completo">
+
+      <div class="linha-dupla">
+        <div>
+          <label class="rotulo" for="janela-telefone">Telefone</label>
+          <input type="text" id="janela-telefone" inputmode="tel"
+                 placeholder="(11) 99999-9999">
+        </div>
+        <div>
+          <label class="rotulo" for="janela-nascimento">Nascimento</label>
+          <input type="date" id="janela-nascimento">
+        </div>
+      </div>
+
+      <label class="rotulo" for="janela-convenio">Convênio</label>
+      {# Vazio significa 'ainda nao perguntei', nao 'particular' — PARTICULAR e um
+         convenio de verdade no catalogo (codigo 001). #}
+      <select id="janela-convenio">
+        <option value="">— não informado —</option>
+        {% for id, nome in convenios %}
+          <option value="{{ id }}">{{ nome }}</option>
+        {% endfor %}
+      </select>
+
+      <button type="button" class="primario" id="janela-cadastrar">
+        Cadastrar e concluir
+      </button>
+    </details>
+
+    <p class="painel-erro" id="janela-erro" hidden></p>
+
+    <div class="acoes-form">
+      <button type="button" class="secundario" id="janela-voltar">
+        Voltar ao atendimento
+      </button>
+    </div>
+  </div>
+</div>

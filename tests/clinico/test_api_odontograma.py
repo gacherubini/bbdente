@@ -153,6 +153,23 @@ def test_condicao_existente_aparece_no_dente(sessao, cenario):
     assert dentes["26"]["condicoes"] == ["OICO14"]
 
 
+def test_condicao_com_regiao_pinta_a_regiao_de_azul(sessao, cenario):
+    """A camada azul do Dentalis tambem pinta parede, nao so o marcador do dente."""
+    clinica, _, paciente, *_ = cenario
+    odo = Odontograma(paciente_id=paciente.id, numero=1)
+    sessao.add(odo)
+    sessao.flush()
+    sessao.add(
+        Condicao(odontograma_id=odo.id, dente=36, tipo=TipoCondicao.OUTRO,
+                 regioes=[Regiao.OCLUSAL], icone_legado="OICO14")
+    )
+    sessao.flush()
+    dentes = estado_do_odontograma(
+        sessao, clinica_id=clinica.id, paciente_id=paciente.id
+    )["dentes"]
+    assert dentes["36"]["regioes"]["OCLUSAL"] == "EXISTENTE"
+
+
 def test_lancamento_excluido_some_do_estado(sessao, cenario):
     clinica, usuario, paciente, restauracao, _ = cenario
     lancamento = lancar(

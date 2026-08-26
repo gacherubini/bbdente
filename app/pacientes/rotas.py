@@ -21,7 +21,6 @@ def listar(
     request: Request,
     q: str = Query(""),
     filtro: str = Query(Filtro.ATIVOS.value),
-    escolher: str = Query(""),
     usuario: Usuario = Depends(usuario_atual),
     sessao: Session = Depends(obter_sessao),
 ):
@@ -30,16 +29,11 @@ def listar(
     except ValueError:
         escolhido = Filtro.ATIVOS  # filtro inventado na URL nao derruba a tela
 
-    # Chegando pelo menu "Odontograma" sem paciente, a lista e um passo do odontograma:
-    # a aba fica marcada la para o clique dar retorno visivel.
-    veio_do_odontograma = escolher == "odontograma"
-
     return templates.TemplateResponse(
         request,
         "pacientes.html",
         {
-            "aba": "odontograma" if veio_do_odontograma else "pacientes",
-            "escolher_paciente": veio_do_odontograma,
+            "aba": "pacientes",
             "termo": q,
             "filtro": escolhido,
             "filtros": list(Filtro),

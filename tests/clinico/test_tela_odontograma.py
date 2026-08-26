@@ -81,12 +81,12 @@ def test_paciente_inexistente_da_404(cliente):
     assert c.get("/odontograma/999999").status_code == 404
 
 
-def test_odontograma_sem_paciente_volta_para_a_lista(cliente):
-    # O motivo de a lista ser avisada esta em test_odontograma_sem_paciente.py.
+def test_odontograma_sem_paciente_abre_a_boca_em_branco(cliente):
+    # O fluxo inteiro esta em test_atendimento_sem_paciente.py.
     c, _ = cliente
     resposta = c.get("/odontograma")
-    assert resposta.status_code == 303
-    assert resposta.headers["location"] == "/pacientes?escolher=odontograma"
+    assert resposta.status_code == 200
+    assert "Atendimento novo" in resposta.text
 
 
 # --- contrato do desenhista ----------------------------------------------------

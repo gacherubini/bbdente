@@ -8,9 +8,15 @@ from starlette.exceptions import HTTPException
 # troque por ele. Anotado aqui para nao virar precedente.
 from app.auth.models import Clinica, Usuario
 from app.auth.sessao import usuario_atual
-from app.catalogo.service import arvore
+from app.catalogo.service import arvore, convenios
 from app.clinico.prontuario import gerar as gerar_prontuario
-from app.clinico.service import anamnese, estado_do_odontograma, historico, responder
+from app.clinico.service import (
+    anamnese,
+    estado_do_odontograma,
+    estado_vazio,
+    historico,
+    responder,
+)
 from app.pacientes.service import obter as obter_paciente
 from app.shared.db import obter_sessao
 from app.templates import templates
@@ -18,11 +24,30 @@ from app.templates import templates
 router = APIRouter()
 
 
-@router.get("/odontograma")
-def sem_paciente():
-    """Sem paciente escolhido nao ha o que desenhar: volta para a busca dizendo
-    por que esta ali — senao o clique no menu nao da retorno nenhum."""
-    return RedirectResponse("/pacientes?escolher=odontograma", status_code=303)
+@router.get("/odontograma", response_class=HTMLResponse)
+def em_branco(
+    request: Request,
+    usuario: Usuario = Depends(usuario_atual),
+    sessao: Session = Depends(obter_sessao),
+):
+    """A boca em branco, sem paciente nenhum.
+
+    E o fluxo de quem esta com a pessoa na cadeira: marca o dente e o tratamento
+    primeiro, diz de quem e no fim. Nada daqui vai para o banco enquanto o
+    atendimento nao for concluido — quem grava e /api/atendimento.
+    """
+    return templates.TemplateResponse(
+        request,
+        "odontograma.html",
+        {
+            "aba": "odontograma",
+            "rascunho": True,
+            "estado": estado_vazio(),
+            "catalogo": arvore(sessao, clinica_id=usuario.clinica_id),
+            "convenios": convenios(sessao, clinica_id=usuario.clinica_id),
+            "historico": [],
+        },
+    )
 
 
 @router.get("/odontograma/{paciente_id}", response_class=HTMLResponse)
@@ -44,6 +69,7 @@ def tela(
         "odontograma.html",
         {
             "aba": "odontograma",
+            "rascunho": False,
             "estado": estado,
             "catalogo": arvore(sessao, clinica_id=usuario.clinica_id),
             "historico": historico(

@@ -20,6 +20,10 @@
   var alvo = { dente: null, regiao: null };
   var repetindo = false;
 
+  // Na boca em branco (menu Odontograma) ainda nao ha paciente: quem recebe o
+  // tratamento e o rascunho, que so grava no fim. Com paciente, vai direto.
+  var rascunho = window.Rascunho || null;
+
   var odontograma = window.Odontograma.montar({
     alvo: "odontograma",
     estado: estadoInicial,
@@ -125,26 +129,10 @@
     caixa.hidden = !texto;
   }
 
-  function enviar() {
-    var escopo = elEscopo();
-    var valorBruto = el("painel-valor").value.trim().replace(/\./g, "").replace(",", ".");
-    var corpo = {
-      paciente_id: estadoInicial.paciente.id,
-      procedimento_id: parseInt(el("painel-procedimento").value, 10),
-      escopo: escopo,
-      dente: escopo === "BOCA" ? null : alvo.dente,
-      regioes: escopo === "REGIOES" ? regioesMarcadas() : [],
-      status: document.querySelector('input[name="status"]:checked').value,
-      data: el("painel-data").value || null,
-      valor: valorBruto || null,
-      observacao: el("painel-observacao").value.trim() || null,
-      numero_odontograma: estadoInicial.odontograma.numero
-    };
-
-    el("painel-lancar").disabled = true;
-    mostrarErro("");
-
-    fetch("/api/lancamento", {
+  function gravarNoServidor(corpo) {
+    corpo.paciente_id = estadoInicial.paciente.id;
+    corpo.numero_odontograma = estadoInicial.odontograma.numero;
+    return fetch("/api/lancamento", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(corpo)
@@ -152,12 +140,32 @@
       .then(function (resposta) {
         return resposta.json().then(function (dados) {
           if (!resposta.ok) throw new Error(dados.detail || "não foi possível lançar");
-          return dados;
+          return dados.estado;
         });
-      })
-      .then(function (dados) {
-        estadoInicial = dados.estado;
-        odontograma.atualizar(dados.estado);
+      });
+  }
+
+  function enviar() {
+    var escopo = elEscopo();
+    var valorBruto = el("painel-valor").value.trim().replace(/\./g, "").replace(",", ".");
+    var corpo = {
+      procedimento_id: parseInt(el("painel-procedimento").value, 10),
+      escopo: escopo,
+      dente: escopo === "BOCA" ? null : alvo.dente,
+      regioes: escopo === "REGIOES" ? regioesMarcadas() : [],
+      status: document.querySelector('input[name="status"]:checked').value,
+      data: el("painel-data").value || null,
+      valor: valorBruto || null,
+      observacao: el("painel-observacao").value.trim() || null
+    };
+
+    el("painel-lancar").disabled = true;
+    mostrarErro("");
+
+    (rascunho ? rascunho.adicionar(corpo) : gravarNoServidor(corpo))
+      .then(function (estado) {
+        estadoInicial = estado;
+        odontograma.atualizar(estado);
         if (!repetindo) {
           alvo = { dente: null, regiao: null };
           mostrarAlvo();
@@ -184,6 +192,14 @@
     el("painel-dica").hidden = true;
     el("painel").classList.remove("repetindo");
   });
+
+  // O rascunho pinta pelo servidor: entregamos a ele como redesenhar a boca.
+  if (rascunho) {
+    rascunho.conectar(function (estado) {
+      estadoInicial = estado;
+      odontograma.atualizar(estado);
+    });
+  }
 
   mostrarAlvo();
   atualizarBotoes();

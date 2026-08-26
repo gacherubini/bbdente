@@ -18,22 +18,17 @@
   <a class="botao-primario" href="{{ link_novo }}">Novo paciente</a>
 </div>
 
-{% if escolher_paciente %}
-  <p class="aviso-escolha">Escolha um paciente para abrir o odontograma</p>
-{% endif %}
-
 <form class="busca" method="get" action="/pacientes">
   <span aria-hidden="true">⌕</span>
   <input name="q" value="{{ termo }}" autofocus
          placeholder="Buscar por nome, telefone ou código…">
   <input type="hidden" name="filtro" value="{{ filtro.value }}">
-  {% if escolher_paciente %}<input type="hidden" name="escolher" value="odontograma">{% endif %}
 </form>
 
 <div class="filtros">
   {% for f in filtros %}
     <a class="filtro {{ 'ativo' if f == filtro }}"
-       href="/pacientes?filtro={{ f.value }}{% if termo %}&q={{ termo }}{% endif %}{% if escolher_paciente %}&escolher=odontograma{% endif %}">
+       href="/pacientes?filtro={{ f.value }}{% if termo %}&q={{ termo }}{% endif %}">
       {{ rotulos[f.value] }}
     </a>
   {% endfor %}

@@ -6,6 +6,7 @@ tabela lancamento direto.
 
 from collections import defaultdict
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
@@ -206,18 +207,13 @@ def excluir_lancamento(
     return True
 
 
-def estado_do_odontograma(
-    sessao: Session, *, clinica_id: int, paciente_id: int, numero: int = 1
-) -> dict:
-    # Fronteira de modulo: clinico nao consulta a tabela paciente, pergunta ao
-    # service de pacientes.
-    paciente = obter_paciente(sessao, clinica_id=clinica_id, paciente_id=paciente_id)
-    if paciente is None:
-        raise LookupError("paciente nao encontrado nesta clinica")
+def _boca_vazia() -> dict[str, dict]:
+    """Os 32 dentes sem nada pintado, ja com a anatomia que o desenho precisa.
 
-    odontograma = _odontograma_de(sessao, paciente_id, numero)
-
-    dentes: dict[str, dict] = {
+    O JavaScript nao sabe anatomia (AGENTS.md): paredes e canais saem daqui
+    prontos. Esta e a base tanto do odontograma gravado quanto da previa.
+    """
+    return {
         str(fdi): {
             "raizes": numero_de_raizes(fdi),
             "canais": [r.value for r in canais_do_dente(fdi)],
@@ -230,6 +226,63 @@ def estado_do_odontograma(
         }
         for fdi in TODOS_FDI
     }
+
+
+def _mais_forte(atual: str | None, novo: str) -> str:
+    return novo if atual is None or FORCA[novo] > FORCA[atual] else atual
+
+
+def _pintar(
+    dentes: dict[str, dict],
+    boca: list[dict],
+    *,
+    escopo: Escopo,
+    dente: int | None,
+    regioes: list[str],
+    status: str,
+    procedimento: str,
+    lancamento_id: int | None = None,
+) -> None:
+    """Poe um tratamento no desenho. So mexe nos dicionarios que recebe.
+
+    Gravado ou ainda por gravar passa por aqui — a regra de qual cor vence nao
+    pode existir em dois lugares.
+    """
+    if escopo is Escopo.BOCA:
+        boca.append(
+            {
+                "lancamento_id": lancamento_id,
+                "procedimento": procedimento,
+                "status": status,
+            }
+        )
+        return
+    chave = str(dente)
+    if chave not in dentes:
+        return
+    if escopo is Escopo.DENTE:
+        dentes[chave]["dente_inteiro"] = _mais_forte(
+            dentes[chave]["dente_inteiro"], status
+        )
+        return
+    for regiao in regioes:
+        dentes[chave]["regioes"][regiao] = _mais_forte(
+            dentes[chave]["regioes"].get(regiao), status
+        )
+
+
+def estado_do_odontograma(
+    sessao: Session, *, clinica_id: int, paciente_id: int, numero: int = 1
+) -> dict:
+    # Fronteira de modulo: clinico nao consulta a tabela paciente, pergunta ao
+    # service de pacientes.
+    paciente = obter_paciente(sessao, clinica_id=clinica_id, paciente_id=paciente_id)
+    if paciente is None:
+        raise LookupError("paciente nao encontrado nesta clinica")
+
+    odontograma = _odontograma_de(sessao, paciente_id, numero)
+
+    dentes = _boca_vazia()
     boca: list[dict] = []
 
     linhas = sessao.execute(
@@ -250,32 +303,17 @@ def estado_do_odontograma(
                 ligacao.regiao.value
             )
 
-    def mais_forte(atual: str | None, novo: str) -> str:
-        return novo if atual is None or FORCA[novo] > FORCA[atual] else atual
-
     for lancamento, nome_procedimento in linhas:
-        estado = lancamento.status.value
-        if lancamento.escopo is Escopo.BOCA:
-            boca.append(
-                {
-                    "lancamento_id": lancamento.id,
-                    "procedimento": nome_procedimento,
-                    "status": estado,
-                }
-            )
-            continue
-        chave = str(lancamento.dente)
-        if chave not in dentes:
-            continue
-        if lancamento.escopo is Escopo.DENTE:
-            dentes[chave]["dente_inteiro"] = mais_forte(
-                dentes[chave]["dente_inteiro"], estado
-            )
-            continue
-        for regiao in regioes_por_lancamento.get(lancamento.id, []):
-            dentes[chave]["regioes"][regiao] = mais_forte(
-                dentes[chave]["regioes"].get(regiao), estado
-            )
+        _pintar(
+            dentes,
+            boca,
+            escopo=lancamento.escopo,
+            dente=lancamento.dente,
+            regioes=regioes_por_lancamento.get(lancamento.id, []),
+            status=lancamento.status.value,
+            procedimento=nome_procedimento,
+            lancamento_id=lancamento.id,
+        )
 
     for condicao in sessao.scalars(
         select(Condicao).where(
@@ -288,7 +326,7 @@ def estado_do_odontograma(
         if condicao.icone_legado:
             dentes[chave]["condicoes"].append(condicao.icone_legado)
         for regiao in condicao.regioes or []:
-            dentes[chave]["regioes"][regiao.value] = mais_forte(
+            dentes[chave]["regioes"][regiao.value] = _mais_forte(
                 dentes[chave]["regioes"].get(regiao.value), "EXISTENTE"
             )
 
@@ -302,6 +340,138 @@ def estado_do_odontograma(
         "dentes": dentes,
         "boca": boca,
     }
+
+
+@dataclass(frozen=True)
+class ItemAtendimento:
+    """Um tratamento do atendimento antes de existir no banco.
+
+    E o que a tela em branco acumula enquanto ainda nao se sabe de quem e o
+    atendimento. Mesmos campos de `lancar`, sem `paciente_id` — que e justamente
+    o que falta ate o fim.
+    """
+
+    procedimento_id: int
+    escopo: Escopo
+    status: StatusLancamento
+    dente: int | None = None
+    regioes: tuple[Regiao, ...] = ()
+    data: date | None = None
+    valor: Decimal | None = None
+    observacao: str | None = None
+
+
+def _nomes_de_procedimento(
+    sessao: Session, *, clinica_id: int, ids: Iterable[int]
+) -> dict[int, str]:
+    """Confere que todo tratamento citado existe NESTA clinica, e traz o nome."""
+    pedidos = set(ids)
+    if not pedidos:
+        return {}
+    nomes = dict(
+        sessao.execute(
+            select(Procedimento.id, Procedimento.nome).where(
+                Procedimento.id.in_(pedidos), Procedimento.clinica_id == clinica_id
+            )
+        ).all()
+    )
+    faltando = pedidos - nomes.keys()
+    if faltando:
+        raise LookupError(
+            f"tratamento nao encontrado nesta clinica: {sorted(faltando)[0]}"
+        )
+    return nomes
+
+
+def estado_vazio() -> dict:
+    """A boca em branco: 32 dentes, ninguem dentro, nada gravado."""
+    return {
+        "paciente": None,
+        "odontograma": {"id": None, "numero": 1},
+        "dentes": _boca_vazia(),
+        "boca": [],
+    }
+
+
+def estado_de_previa(
+    sessao: Session, *, clinica_id: int, itens: "list[ItemAtendimento]"
+) -> dict:
+    """Pinta um atendimento que ainda nao foi gravado. NAO escreve nada.
+
+    Existe para a regra de qual cor vence morar so no servidor, onde tem teste,
+    em vez de ser copiada para o JavaScript.
+    """
+    nomes = _nomes_de_procedimento(
+        sessao, clinica_id=clinica_id, ids=[item.procedimento_id for item in itens]
+    )
+    estado = estado_vazio()
+    for item in itens:
+        _validar(item.escopo, item.dente, list(item.regioes))
+        _pintar(
+            estado["dentes"],
+            estado["boca"],
+            escopo=item.escopo,
+            dente=item.dente,
+            regioes=[regiao.value for regiao in item.regioes],
+            status=item.status.value,
+            procedimento=nomes[item.procedimento_id],
+        )
+    return estado
+
+
+def validar_atendimento(
+    sessao: Session, *, clinica_id: int, itens: "list[ItemAtendimento]"
+) -> None:
+    """Recusa o atendimento inteiro ANTES de qualquer escrita.
+
+    Existe separada de `lancar_atendimento` para quem chama poder conferir tudo
+    antes de criar o cadastro do paciente: assim um item errado nao deixa para
+    tras um paciente novo que so existia para receber esse atendimento.
+    """
+    if not itens:
+        raise EscopoInvalido("atendimento sem tratamento nenhum")
+    _nomes_de_procedimento(
+        sessao, clinica_id=clinica_id, ids=[item.procedimento_id for item in itens]
+    )
+    for item in itens:
+        _validar(item.escopo, item.dente, list(item.regioes))
+
+
+def lancar_atendimento(
+    sessao: Session,
+    *,
+    clinica_id: int,
+    usuario_id: int,
+    paciente_id: int,
+    itens: "list[ItemAtendimento]",
+    numero_odontograma: int = 1,
+) -> list[Lancamento]:
+    """Grava o atendimento inteiro de uma vez, no fim, quando ja se sabe de quem e.
+
+    Valida TUDO antes de escrever a primeira linha: ou entra o atendimento
+    completo, ou nao entra nada. Meio atendimento gravado seria pior que nenhum,
+    porque ninguem saberia qual metade faltou.
+    """
+    validar_atendimento(sessao, clinica_id=clinica_id, itens=itens)
+
+    return [
+        lancar(
+            sessao,
+            clinica_id=clinica_id,
+            usuario_id=usuario_id,
+            paciente_id=paciente_id,
+            procedimento_id=item.procedimento_id,
+            escopo=item.escopo,
+            dente=item.dente,
+            regioes=list(item.regioes),
+            status=item.status,
+            data=item.data,
+            valor=item.valor,
+            observacao=item.observacao,
+            numero_odontograma=numero_odontograma,
+        )
+        for item in itens
+    ]
 
 
 def historico(

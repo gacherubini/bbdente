@@ -388,16 +388,6 @@ a.botao-secundario {
 }
 a.botao-secundario:hover { background: var(--roxo-cl); }
 
-/* chegou pelo menu Odontograma sem paciente: a tela diz por que esta aqui */
-.aviso-escolha {
-  background: var(--roxo-cl);
-  color: var(--roxo-esc);
-  border-radius: var(--raio);
-  padding: 10px 13px;
-  font-size: 13px;
-  font-weight: 600;
-  margin: 0 0 14px;
-}
 
 .lista-vazia {
   border: 1px dashed var(--borda);
@@ -466,3 +456,119 @@ a.botao-secundario:hover { background: var(--roxo-cl); }
 .parecidos li a.nome { color: var(--roxo-esc); text-decoration: none; }
 .parecidos li a.nome:hover { text-decoration: underline; }
 .parecidos-data { color: var(--texto-fraco); font-size: 12px; }
+
+/* --- atendimento em aberto, na boca em branco --- */
+.atendimento {
+  border-top: 1px solid var(--borda);
+  margin-top: 18px;
+  padding-top: 14px;
+}
+.atendimento-itens { list-style: none; margin: 0; padding: 0; }
+.atendimento-itens li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  padding: 7px 9px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+.atendimento-itens li span { flex: 1; }
+/* '.painel button' poe 100% de largura em todo botao do painel; o 'x' de tirar
+   do atendimento precisa de mais peso para escapar disso. */
+.painel .atendimento-tirar {
+  background: none;
+  border: 0;
+  color: var(--texto-fraco);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+  width: auto;
+  margin: 0;
+}
+.painel .atendimento-tirar:hover { color: #B91C1C; }
+.atendimento-vazio { color: var(--texto-fraco); font-size: 12.5px; margin: 0; }
+
+/* --- janela que fecha o atendimento --- */
+.janela {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  overflow-y: auto;
+  z-index: 50;
+}
+.janela[hidden] { display: none; }
+.janela-caixa {
+  background: #fff;
+  border-radius: 14px;
+  padding: 22px 24px;
+  width: 100%;
+  max-width: 480px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.25);
+}
+.janela-caixa h2 { margin: 0; font-size: 18px; }
+.janela-ajuda { margin: 5px 0 16px; font-size: 13px; color: var(--texto-fraco); }
+.janela-caixa input[type="text"],
+.janela-caixa input[type="date"],
+.janela-caixa select {
+  width: 100%;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  padding: 9px 11px;
+  font-size: 13.5px;
+  background: #fff;
+}
+.janela-caixa input:focus,
+.janela-caixa select:focus {
+  outline: 0;
+  border-color: var(--roxo);
+  box-shadow: 0 0 0 3px var(--roxo-cl);
+}
+.janela-achados { list-style: none; margin: 8px 0 0; padding: 0; }
+.janela-achados li { margin-bottom: 4px; }
+.nome-botao {
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  padding: 8px 11px;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.nome-botao:hover { border-color: var(--roxo); background: var(--roxo-cl); }
+.nome-botao b { flex: 1; font-weight: 600; }
+.nome-botao .codigo {
+  font-family: ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--texto-fraco);
+}
+.janela-data { color: var(--texto-fraco); font-size: 12px; }
+.janela-vazio {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: var(--texto-fraco);
+}
+.janela-novo {
+  border-top: 1px solid var(--borda);
+  margin-top: 18px;
+  padding-top: 12px;
+}
+.janela-novo summary {
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--roxo-esc);
+}
+.janela-novo button.primario { width: 100%; margin-top: 16px; }
+.parecidos li button.nome-botao { border-color: #FCD34D; }
