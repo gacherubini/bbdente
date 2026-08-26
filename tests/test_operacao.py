@@ -66,3 +66,15 @@ def test_o_ambiente_do_pg_dump_herda_o_path_da_maquina():
     env = ambiente(urlparse("postgresql://bddente:segredo@localhost:5432/bddente"))
     assert env["PGPASSWORD"] == "segredo"
     assert env.get("PATH") == os.environ.get("PATH")
+
+
+def test_o_deploy_aplica_a_migration_antes_de_trocar_o_codigo():
+    """`fly ssh console -C "alembic upgrade head"` roda dentro da imagem que JA
+    esta no ar — a anterior, que nao contem o arquivo da migration nova. O comando
+    responde sucesso e nao faz nada, e o codigo novo sobe procurando uma coluna que
+    nao existe. O `release_command` roda o Alembic na imagem NOVA e antes dela
+    receber transito; se falhar, o Fly aborta o deploy e a versao velha continua.
+    """
+    conteudo = Path("fly.toml").read_text(encoding="utf-8")
+    assert "release_command" in conteudo
+    assert "alembic upgrade head" in conteudo

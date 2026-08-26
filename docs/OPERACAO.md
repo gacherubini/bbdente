@@ -56,31 +56,29 @@ converte para o formato do psycopg 3 sozinha — não edite o segredo à mão.
 `COOKIE_SEGURO=true` faz o cookie de sessão só viajar por HTTPS. O padrão é `false`
 porque o navegador recusa cookie `secure` em `http://localhost`, no desenvolvimento.
 
-Migrations e o primeiro usuário rodam à mão depois do deploy:
+O primeiro usuário roda à mão, uma vez:
 
-    fly ssh console -C "alembic upgrade head"
     fly ssh console --pty -C "python -m scripts.criar_usuario katia@exemplo.com 'Katia'"
 
-### Migration que o código novo já usa: aplique ANTES do deploy
+### Migration: o deploy aplica sozinho, e para se falhar
 
-A ordem importa e a armadilha é silenciosa. `fly ssh console -C "alembic upgrade
-head"` roda o Alembic **de dentro da imagem em produção** — que ainda é a
-anterior e não contém o arquivo da migration nova. O comando responde com
-sucesso e não faz nada: `alembic current` continua marcando a revisão velha como
-`(head)`, porque na visão daquela imagem ela é mesmo a última.
+O `release_command` do `fly.toml` roda `alembic upgrade head` numa máquina
+temporária com a **imagem nova**, antes de ela receber trânsito. Se a migration
+falhar, o Fly aborta o deploy e a versão anterior continua no ar — o banco nunca
+fica à frente de um código que não subiu.
 
-Se o deploy subir primeiro, o código novo procura uma coluna que não existe e a
-tela quebra até alguém perceber. Para migration aditiva — coluna nova e nulável,
-tabela nova — aplique **antes**, pelo túnel, com o código da sua máquina:
+**Nunca troque isso por `fly ssh console -C "alembic upgrade head"`.** A armadilha
+é silenciosa: esse comando roda o Alembic de dentro da imagem que já está em
+produção — a anterior, que não contém o arquivo da migration nova. Ele responde
+com sucesso e não faz nada, `alembic current` continua marcando a revisão velha
+como `(head)` (na visão daquela imagem ela é mesmo a última), e o código novo sobe
+procurando uma coluna que não existe.
 
-    fly proxy 5433:5432 -a bddente-db
-    DATABASE_URL="postgres://postgres:<senha>@localhost:5433/bddente"         .venv/bin/alembic upgrade head
-
-A `<senha>` sai de `fly ssh console -a bddente -C "printenv DATABASE_URL"`.
-Migration aditiva é compatível com o código antigo: a coluna fica lá, sem ninguém
-usar, até o deploy chegar. Migration que **remove** ou **renomeia** coluna não
-tem esse conforto — ela precisa ser quebrada em duas, uma antes e outra depois do
-deploy.
+Migration que **remove** ou **renomeia** coluna continua precisando de duas etapas:
+o `release_command` roda antes do código novo, então a coluna sumiria debaixo do
+código antigo que ainda está atendendo. Quebre em duas — a que só acrescenta vai
+com o deploy que passa a usar; a que remove vai no deploy seguinte, quando ninguém
+mais lê a coluna.
 
 ## Primeira carga: levar os 30 anos de histórico para produção
 
@@ -116,11 +114,11 @@ nova** pelo túnel:
     .venv/bin/alembic upgrade head        # local
     .venv/bin/python -m migracao          # idempotente; refaz só o que falta
 
-    # a migration primeiro, pelo túnel (ver "Migration aditiva", acima)
+    # a migration de produção sai junto com o deploy (release_command);
+    # aqui falta só levar a tabela nova pelo túnel
     fly proxy 5433:5432 -a bddente-db
-    DATABASE_URL="postgres://postgres:<senha>@localhost:5433/bddente"         .venv/bin/alembic upgrade head
 
-    # depois a tabela, só ela
+    # a tabela, só ela
     .venv/bin/pg_dump --data-only --table=parcela         "postgresql://bddente:bddente@localhost:5432/bddente" > parcela.sql
     psql "postgres://postgres:<senha>@localhost:5433/bddente" < parcela.sql
 

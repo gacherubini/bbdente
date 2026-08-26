@@ -4,6 +4,13 @@ primary_region = "iad"  # Ashburn, Virginia — escolhido por custo
 [build]
   dockerfile = "Dockerfile"
 
+# O Fly roda isto numa maquina temporaria com a imagem NOVA, antes de trocar o
+# codigo que atende a clinica — e aborta o deploy se falhar. Rodar o Alembic
+# depois, por `fly ssh console`, executaria dentro da imagem antiga: ela nao tem
+# o arquivo da migration nova, responde sucesso e nao faz nada, e a tela quebra.
+[deploy]
+  release_command = "alembic upgrade head"
+
 [env]
   PORT = "8080"
   # A maquina do Fly roda em UTC e a clinica esta em UTC-3. Sem isto,
