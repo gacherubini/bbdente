@@ -84,8 +84,8 @@
 {% block scripts %}
 <script type="application/json" id="estado-inicial">{{ estado | tojson }}</script>
 <script type="application/json" id="catalogo">{{ catalogo | tojson }}</script>
-<script src="/static/odontograma.js"></script>
-{% if rascunho %}<script src="/static/rascunho.js"></script>{% endif %}
-<script src="/static/painel.js"></script>
-{% if not rascunho %}<script src="/static/historico.js"></script>{% endif %}
+<script src="{{ estatico('odontograma.js') }}"></script>
+{% if rascunho %}<script src="{{ estatico('rascunho.js') }}"></script>{% endif %}
+<script src="{{ estatico('painel.js') }}"></script>
+{% if not rascunho %}<script src="{{ estatico('historico.js') }}"></script>{% endif %}
 {% endblock %}

@@ -176,5 +176,5 @@
 
 {% block scripts %}
 <script type="application/json" id="dados-graficos">{{ graficos | tojson }}</script>
-<script src="/static/graficos.js"></script>
+<script src="{{ estatico('graficos.js') }}"></script>
 {% endblock %}
