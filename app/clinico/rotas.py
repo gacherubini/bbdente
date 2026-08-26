@@ -1,11 +1,15 @@
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
 
-from app.auth.models import Usuario
+# Excecao consciente a fronteira de modulo: clinico importa auth.models.Clinica so
+# para ler o nome no cabecalho do PDF. Se auth ganhar um service.clinica(id),
+# troque por ele. Anotado aqui para nao virar precedente.
+from app.auth.models import Clinica, Usuario
 from app.auth.sessao import usuario_atual
 from app.catalogo.service import arvore
+from app.clinico.prontuario import gerar as gerar_prontuario
 from app.clinico.service import anamnese, estado_do_odontograma, historico, responder
 from app.pacientes.service import obter as obter_paciente
 from app.shared.db import obter_sessao
@@ -95,3 +99,28 @@ async def gravar_anamnese(
     )
     sessao.commit()
     return RedirectResponse(f"/anamnese/{paciente_id}", status_code=303)
+
+
+@router.get("/prontuario/{paciente_id}.pdf")
+def prontuario_pdf(
+    paciente_id: int,
+    usuario: Usuario = Depends(usuario_atual),
+    sessao: Session = Depends(obter_sessao),
+):
+    clinica = sessao.get(Clinica, usuario.clinica_id)
+    try:
+        conteudo = gerar_prontuario(
+            sessao,
+            clinica_id=usuario.clinica_id,
+            paciente_id=paciente_id,
+            clinica_nome=clinica.nome if clinica else "BDDente",
+        )
+    except LookupError as erro:
+        raise HTTPException(status_code=404, detail=str(erro)) from erro
+    return Response(
+        content=conteudo,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="prontuario-{paciente_id}.pdf"'
+        },
+    )
