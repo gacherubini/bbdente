@@ -28,7 +28,14 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture
 def tudo_migrado(sessao):
-    from migracao import anamnese, catalogo, condicoes, lancamentos, pacientes
+    from migracao import (
+        anamnese,
+        catalogo,
+        condicoes,
+        financeiro,
+        lancamentos,
+        pacientes,
+    )
 
     clinica = Clinica(nome="Consultorio Dra. Katia")
     sessao.add(clinica)
@@ -39,6 +46,7 @@ def tudo_migrado(sessao):
         lancamentos.migrar(sessao, extrato, clinica.id)
         condicoes.migrar(sessao, extrato, clinica.id)
         anamnese.migrar(sessao, extrato, clinica.id)
+        financeiro.migrar(sessao, extrato, clinica.id)
     sessao.flush()
     return clinica
 

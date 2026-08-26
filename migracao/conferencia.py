@@ -17,6 +17,7 @@ from app.clinico.models import (
     Odontograma,
     RespostaAnamnese,
 )
+from app.financeiro.models import Parcela
 from app.pacientes.models import Paciente
 from app.shared.dentes import TODOS_FDI
 from app.shared.tipos import Escopo
@@ -34,6 +35,18 @@ ESPERADO_REGIOES = 29_350
 ESPERADO_CONDICOES = 9_629
 ESPERADO_RESPOSTAS = 2_046
 ESPERADO_SOMA = Decimal("3461389.07")
+
+# ARQFAT: o livro-caixa. VALORPAG e o dinheiro que entrou de fato, e a soma
+# dele bate com a dos lancamentos realizados (R$ 2.374.762,13) com R$ 3.553,60
+# de diferenca em 30 anos — duas fontes independentes contando a mesma coisa.
+ESPERADO_PARCELAS = 28_244
+ESPERADO_COBRADO = Decimal("5808797.26")
+ESPERADO_PAGO = Decimal("2378315.73")
+ESPERADO_PARCELAS_SEM_PAGAMENTO = 7_546
+ESPERADO_PACIENTES_COM_PARCELA = 5_340
+# Cinco linhas com ano fora de 1900-2035 (0200, 0202, 0203, 9200). Entram com a
+# data como veio, marcadas — preservar e marcar, nunca chutar o seculo.
+ESPERADO_PARCELAS_MARCADAS = 5
 
 
 class ConferenciaFalhou(RuntimeError):
@@ -112,5 +125,45 @@ def conferir(sessao: Session, clinica_id: int) -> list[str]:
         .count()
     )
     comparar("regiao em lancamento sem escopo REGIOES", regiao_fora_de_escopo, 0)
+
+    comparar(
+        "parcela",
+        sessao.query(Parcela).filter_by(clinica_id=clinica_id).count(),
+        ESPERADO_PARCELAS,
+    )
+    cobrado = sessao.query(
+        func.coalesce(func.sum(Parcela.valor_cobrado), 0)
+    ).filter_by(clinica_id=clinica_id).scalar()
+    comparar(
+        "soma cobrada", Decimal(cobrado).quantize(Decimal("0.01")), ESPERADO_COBRADO
+    )
+    pago = sessao.query(
+        func.coalesce(func.sum(Parcela.valor_pago), 0)
+    ).filter_by(clinica_id=clinica_id).scalar()
+    comparar("soma paga", Decimal(pago).quantize(Decimal("0.01")), ESPERADO_PAGO)
+    comparar(
+        "parcela sem pagamento",
+        sessao.query(Parcela)
+        .filter(Parcela.clinica_id == clinica_id, Parcela.pago_em.is_(None))
+        .count(),
+        ESPERADO_PARCELAS_SEM_PAGAMENTO,
+    )
+    comparar(
+        "paciente com parcela",
+        sessao.query(func.count(func.distinct(Parcela.paciente_id)))
+        .filter(Parcela.clinica_id == clinica_id)
+        .scalar(),
+        ESPERADO_PACIENTES_COM_PARCELA,
+    )
+    comparar(
+        "parcela marcada para revisar",
+        sessao.query(Parcela)
+        .filter(
+            Parcela.clinica_id == clinica_id,
+            func.cardinality(Parcela.revisar_motivo) > 0,
+        )
+        .count(),
+        ESPERADO_PARCELAS_MARCADAS,
+    )
 
     return divergencias

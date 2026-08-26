@@ -13,7 +13,14 @@ from sqlalchemy import select
 from app.auth.models import Clinica
 from app.config import config
 from app.shared.db import Sessao
-from migracao import anamnese, catalogo, condicoes, lancamentos, pacientes
+from migracao import (
+    anamnese,
+    catalogo,
+    condicoes,
+    financeiro,
+    lancamentos,
+    pacientes,
+)
 from migracao.conferencia import ConferenciaFalhou, conferir
 from migracao.extrato import Extrato
 
@@ -36,6 +43,8 @@ def main() -> int:
         print(" ", condicoes.migrar(sessao, extrato, clinica.id))
         print("anamnese...", flush=True)
         print(" ", anamnese.migrar(sessao, extrato, clinica.id))
+        print("financeiro... (28.244 parcelas)", flush=True)
+        print(" ", financeiro.migrar(sessao, extrato, clinica.id))
 
         print("conferindo...", flush=True)
         divergencias = conferir(sessao, clinica.id)
