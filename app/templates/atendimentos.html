@@ -20,64 +20,87 @@
   </form>
 </div>
 
-{% if not grupos %}
+{% macro lista(grupos, classe) -%}
+  {% for grupo in grupos %}
+  <section class="atendimento {{ classe }}">
+    <div class="atendimento-topo">
+      <h3><a href="/odontograma/{{ grupo.paciente_id }}">{{ grupo.nome }}</a></h3>
+      <span class="atendimento-resumo">
+        {{ grupo.quantos }} tratamento{{ '' if grupo.quantos == 1 else 's' }}
+        · <b class="numero">R$ {{ grupo.total | moeda }}</b>
+      </span>
+    </div>
+    <table>
+      <thead>
+        <tr><th>Dente</th><th>Tratamento</th>
+            <th style="text-align:right">Valor</th></tr>
+      </thead>
+      <tbody>
+      {% for item in grupo.itens %}
+        <tr>
+          <td>{{ item.dente or 'boca toda' }}</td>
+          <td>
+            {{ item.procedimento }}
+            {% if item.observacao %}
+              <span class="observacao">{{ item.observacao }}</span>
+            {% endif %}
+          </td>
+          <td style="text-align:right" class="numero">R$ {{ item.valor | moeda }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endfor %}
+{%- endmacro %}
+
+{% if not grupos and not planejados %}
   <p class="aviso">
     Nenhum atendimento em {{ dia.strftime('%d/%m/%Y') }}.
     {% if dia == hoje %}
       Quando você concluir um atendimento, ele aparece aqui.
     {% endif %}
   </p>
-{% else %}
+{% endif %}
 
-<div class="cartoes">
-  <div class="cartao">
-    <span class="cartao-rotulo">Pacientes</span>
-    <strong class="numero">{{ pacientes }}</strong>
-    <span class="cartao-ajuda">atendidos no dia</span>
+{% if grupos %}
+  {# Os cartoes contam so o que foi FEITO. O planejado tem o subtotal dele no
+     cabecalho do proprio bloco, e nunca entra aqui: somar os dois inflaria a
+     producao do dia com trabalho que ainda nao aconteceu. #}
+  <div class="cartoes">
+    <div class="cartao">
+      <span class="cartao-rotulo">Pacientes</span>
+      <strong class="numero">{{ pacientes }}</strong>
+      <span class="cartao-ajuda">atendidos no dia</span>
+    </div>
+    <div class="cartao">
+      <span class="cartao-rotulo">Tratamentos</span>
+      <strong class="numero">{{ tratamentos }}</strong>
+      <span class="cartao-ajuda">realizados no dia</span>
+    </div>
+    <div class="cartao">
+      <span class="cartao-rotulo">Produzido</span>
+      <strong class="numero">R$ {{ total | moeda }}</strong>
+      <span class="cartao-ajuda">soma do que foi feito</span>
+    </div>
   </div>
-  <div class="cartao">
-    <span class="cartao-rotulo">Tratamentos</span>
-    <strong class="numero">{{ tratamentos }}</strong>
-    <span class="cartao-ajuda">realizados no dia</span>
-  </div>
-  <div class="cartao">
-    <span class="cartao-rotulo">Produzido</span>
-    <strong class="numero">R$ {{ total | moeda }}</strong>
-    <span class="cartao-ajuda">soma do que foi feito</span>
-  </div>
-</div>
 
-{% for grupo in grupos %}
-<section class="atendimento">
-  <div class="atendimento-topo">
-    <h2><a href="/odontograma/{{ grupo.paciente_id }}">{{ grupo.nome }}</a></h2>
-    <span class="atendimento-resumo">
-      {{ grupo.quantos }} tratamento{{ '' if grupo.quantos == 1 else 's' }}
-      · <b class="numero">R$ {{ grupo.total | moeda }}</b>
+  <h2 class="titulo-bloco">Feito hoje</h2>
+  {{ lista(grupos, 'feito') }}
+{% endif %}
+
+{% if planejados %}
+  {# Bloco separado, nunca somado ao produzido: e agenda, nao prontuario. Aparece
+     porque quem abre a tela quer saber quem tem hora marcada — e porque, sem ele,
+     quem acabou de lancar um planejamento acha que a tela engoliu o lancamento. #}
+  <h2 class="titulo-bloco">
+    Planejado para hoje
+    <span class="titulo-bloco-resumo">
+      {{ planejados_tratamentos }} tratamento{{ '' if planejados_tratamentos == 1 else 's' }}
+      · R$ {{ planejados_total | moeda }}
     </span>
-  </div>
-  <table>
-    <thead>
-      <tr><th>Dente</th><th>Tratamento</th>
-          <th style="text-align:right">Valor</th></tr>
-    </thead>
-    <tbody>
-    {% for item in grupo.itens %}
-      <tr>
-        <td>{{ item.dente or 'boca toda' }}</td>
-        <td>
-          {{ item.procedimento }}
-          {% if item.observacao %}
-            <span class="observacao">{{ item.observacao }}</span>
-          {% endif %}
-        </td>
-        <td style="text-align:right" class="numero">R$ {{ item.valor | moeda }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</section>
-{% endfor %}
-
+  </h2>
+  <p class="nota-bloco">Ainda não foi feito — não entra na produção do dia.</p>
+  {{ lista(planejados, 'planejado') }}
 {% endif %}
 {% endblock %}

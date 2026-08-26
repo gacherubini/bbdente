@@ -19,6 +19,7 @@ from app.clinico.service import (
     atendimentos_do_paciente,
     estado_do_odontograma,
     estado_vazio,
+    planejados_do_dia,
     responder,
 )
 from app.pacientes.service import nomes_de
@@ -50,6 +51,7 @@ def em_branco(
             "estado": estado_vazio(),
             "catalogo": arvore(sessao, clinica_id=usuario.clinica_id),
             "convenios": convenios(sessao, clinica_id=usuario.clinica_id),
+            "hoje": date.today(),
             "atendimentos": [],
         },
     )
@@ -77,6 +79,7 @@ def tela(
             "rascunho": False,
             "estado": estado,
             "catalogo": arvore(sessao, clinica_id=usuario.clinica_id),
+            "hoje": date.today(),
             "atendimentos": atendimentos_do_paciente(
                 sessao, clinica_id=usuario.clinica_id, paciente_id=paciente_id
             ),
@@ -116,19 +119,21 @@ def tela_atendimentos(
     paciente, nao aqui.
     """
     escolhido = _dia(dia)
-    grupos = atendimentos_do_dia(
+    feitos = atendimentos_do_dia(sessao, clinica_id=usuario.clinica_id, dia=escolhido)
+    planejados = planejados_do_dia(
         sessao, clinica_id=usuario.clinica_id, dia=escolhido
     )
     # Fronteira de modulo: o nome do paciente vem pela service dele, numa consulta
-    # so para a lista inteira. `clinico` nunca faz JOIN em `paciente`.
+    # so para as duas listas juntas. `clinico` nunca faz JOIN em `paciente`.
     nomes = nomes_de(
         sessao,
         clinica_id=usuario.clinica_id,
-        paciente_ids=[grupo["paciente_id"] for grupo in grupos],
+        paciente_ids=[g["paciente_id"] for g in feitos + planejados],
     )
-    for grupo in grupos:
+    for grupo in feitos + planejados:
         grupo["nome"] = nomes.get(grupo["paciente_id"], "—")
-    grupos.sort(key=lambda grupo: grupo["nome"])
+    feitos.sort(key=lambda grupo: grupo["nome"])
+    planejados.sort(key=lambda grupo: grupo["nome"])
 
     return templates.TemplateResponse(
         request,
@@ -138,10 +143,17 @@ def tela_atendimentos(
             "dia": escolhido,
             "dia_da_semana": DIAS[escolhido.weekday()],
             "hoje": date.today(),
-            "grupos": grupos,
-            "pacientes": len(grupos),
-            "tratamentos": sum(grupo["quantos"] for grupo in grupos),
-            "total": sum((grupo["total"] for grupo in grupos), Decimal("0.00")),
+            "grupos": feitos,
+            "planejados": planejados,
+            # Os numeros do topo sao do que foi FEITO. O planejado tem o subtotal
+            # dele no cabecalho do proprio bloco.
+            "pacientes": len(feitos),
+            "tratamentos": sum(grupo["quantos"] for grupo in feitos),
+            "total": sum((grupo["total"] for grupo in feitos), Decimal("0.00")),
+            "planejados_tratamentos": sum(g["quantos"] for g in planejados),
+            "planejados_total": sum(
+                (g["total"] for g in planejados), Decimal("0.00")
+            ),
         },
     )
 

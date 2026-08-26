@@ -6,6 +6,11 @@ primary_region = "iad"  # Ashburn, Virginia — escolhido por custo
 
 [env]
   PORT = "8080"
+  # A maquina do Fly roda em UTC e a clinica esta em UTC-3. Sem isto,
+  # `date.today()` vira o dia seguinte a partir das 21h no Brasil — e o
+  # sistema pergunta que dia e hoje em 15 lugares (data do lancamento, mes
+  # do financeiro, data de cadastro, emissao do PDF). A imagem ja tem tzdata.
+  TZ = "America/Sao_Paulo"
 
 [http_service]
   internal_port = 8080

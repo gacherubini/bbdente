@@ -34,3 +34,18 @@ def test_a_config_normaliza_o_que_vem_do_ambiente(monkeypatch):
 
     monkeypatch.setenv("DATABASE_URL", "postgres://u:s@h:5432/d")
     assert Config().database_url == "postgresql+psycopg://u:s@h:5432/d"
+
+
+# --- fuso horario ---------------------------------------------------------------
+
+
+def test_a_producao_roda_no_fuso_da_clinica():
+    """A maquina do Fly roda em UTC. Sem TZ, `date.today()` vira o dia seguinte a
+    partir das 21h no Brasil — e o sistema tem 15 lugares que perguntam que dia e
+    hoje: data do lancamento, mes do financeiro, data de cadastro, emissao do PDF.
+
+    Errar isso grava tratamento no dia errado e some da tela do dia."""
+    from pathlib import Path
+
+    fly = Path("fly.toml").read_text(encoding="utf-8")
+    assert 'TZ = "America/Sao_Paulo"' in fly

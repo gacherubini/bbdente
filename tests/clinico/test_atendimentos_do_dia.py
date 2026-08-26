@@ -19,7 +19,12 @@ from app.auth.models import Clinica
 from app.auth.service import criar_usuario
 from app.auth.sessao import NOME_COOKIE, assinar
 from app.catalogo.models import Categoria, Procedimento
-from app.clinico.service import atendimentos_do_dia, excluir_lancamento, lancar
+from app.clinico.service import (
+    atendimentos_do_dia,
+    excluir_lancamento,
+    lancar,
+    planejados_do_dia,
+)
 from app.main import criar_app
 from app.pacientes.models import Paciente
 from app.shared.db import obter_sessao
@@ -244,3 +249,113 @@ def test_a_tela_exige_login(sessao):
     app.dependency_overrides[obter_sessao] = lambda: sessao
     with TestClient(app, follow_redirects=False) as anonimo:
         assert anonimo.get("/atendimentos").status_code in (302, 303, 307)
+
+
+# --- planejado para o dia: aparece, mas em bloco separado ----------------------
+#
+# Nao entra na conta do que foi FEITO. Fica visivel porque quem abre a tela quer
+# saber quem tem hora marcada, e some-lo faria a tela parecer quebrada para quem
+# acabou de lancar um planejamento.
+
+
+def planejados(sessao, cenario, dia=DIA):
+    return planejados_do_dia(sessao, clinica_id=cenario["clinica"].id, dia=dia)
+
+
+def test_planejado_para_o_dia_entra_nos_planejados(sessao, cenario, lancar_em):
+    lancar_em(cenario["amanda"], status=StatusLancamento.PLANEJADO)
+
+    grupos = planejados(sessao, cenario)
+
+    assert len(grupos) == 1
+    assert grupos[0]["paciente_id"] == cenario["amanda"].id
+    assert grupos[0]["quantos"] == 1
+
+
+def test_realizado_nao_entra_nos_planejados(sessao, cenario, lancar_em):
+    """Os dois blocos sao disjuntos: nada aparece nos dois ao mesmo tempo."""
+    lancar_em(cenario["amanda"], status=StatusLancamento.REALIZADO)
+
+    assert planejados(sessao, cenario) == []
+
+
+def test_planejado_de_outro_dia_nao_entra(sessao, cenario, lancar_em):
+    lancar_em(
+        cenario["amanda"], dia=date(2026, 8, 25), status=StatusLancamento.PLANEJADO
+    )
+
+    assert planejados(sessao, cenario) == []
+
+
+def test_planejado_excluido_nao_entra(sessao, cenario, lancar_em):
+    lancamento = lancar_em(cenario["amanda"], status=StatusLancamento.PLANEJADO)
+    excluir_lancamento(
+        sessao, clinica_id=cenario["clinica"].id,
+        usuario_id=cenario["usuario"].id, lancamento_id=lancamento.id,
+    )
+    sessao.flush()
+
+    assert planejados(sessao, cenario) == []
+
+
+def test_planejado_de_outra_clinica_nao_entra(sessao, cenario, lancar_em):
+    lancar_em(
+        cenario["de_fora"], clinica=cenario["outra"], status=StatusLancamento.PLANEJADO
+    )
+
+    assert planejados(sessao, cenario) == []
+
+
+# --- os dois blocos na tela ----------------------------------------------------
+
+
+def test_a_tela_mostra_o_planejado_do_dia(cliente, cenario, lancar_em):
+    lancar_em(cenario["amanda"], status=StatusLancamento.PLANEJADO)
+
+    corpo = cliente.get(f"/atendimentos?dia={DIA.isoformat()}").text
+
+    assert "Planejado para hoje" in corpo
+    assert "Amanda" in corpo
+
+
+def test_o_feito_vem_antes_do_planejado(cliente, cenario, lancar_em):
+    lancar_em(cenario["zilda"], status=StatusLancamento.REALIZADO)
+    lancar_em(cenario["amanda"], status=StatusLancamento.PLANEJADO)
+
+    corpo = cliente.get(f"/atendimentos?dia={DIA.isoformat()}").text
+
+    assert corpo.index("Feito hoje") < corpo.index("Planejado para hoje")
+
+
+def test_o_produzido_do_dia_ignora_o_planejado(cliente, cenario, lancar_em):
+    """O numero de produzido e do que foi FEITO. Somar planejado nele inflaria a
+    producao do dia com trabalho que ainda nao aconteceu."""
+    lancar_em(cenario["zilda"], valor="150.00", status=StatusLancamento.REALIZADO)
+    lancar_em(cenario["amanda"], valor="890.00", status=StatusLancamento.PLANEJADO)
+
+    corpo = cliente.get(f"/atendimentos?dia={DIA.isoformat()}").text
+
+    assert "150,00" in corpo
+    assert "1.040,00" not in corpo
+
+
+def test_dia_so_com_planejado_nao_diz_que_nao_houve_nada(cliente, cenario, lancar_em):
+    lancar_em(cenario["amanda"], status=StatusLancamento.PLANEJADO)
+
+    corpo = cliente.get(f"/atendimentos?dia={DIA.isoformat()}").text
+
+    assert "Nenhum atendimento" not in corpo
+
+
+def test_dia_vazio_de_verdade_continua_dizendo_que_nao_houve_nada(cliente):
+    corpo = cliente.get(f"/atendimentos?dia={DIA.isoformat()}").text
+
+    assert "Nenhum atendimento" in corpo
+
+
+def test_o_planejado_linka_para_o_odontograma_do_paciente(cliente, cenario, lancar_em):
+    lancar_em(cenario["amanda"], status=StatusLancamento.PLANEJADO)
+
+    corpo = cliente.get(f"/atendimentos?dia={DIA.isoformat()}").text
+
+    assert f'href="/odontograma/{cenario["amanda"].id}"' in corpo

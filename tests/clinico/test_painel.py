@@ -118,3 +118,34 @@ def test_o_js_manda_o_lancamento_para_a_api_certa():
 def test_o_js_trata_erro_da_api_em_vez_de_falhar_calado():
     fonte = JS.read_text(encoding="utf-8")
     assert "catch" in fonte
+
+
+# --- a data ja vem preenchida com hoje ------------------------------------------
+
+
+def test_a_data_do_painel_ja_vem_com_hoje(cliente):
+    """Quem esta com o paciente na cadeira lanca o que esta fazendo agora. Deixar
+    o campo vazio grava lancamento sem data — foi assim que apareceu um grupo
+    'Sem data' no historico de quem nunca digitou data nenhuma."""
+    from datetime import date
+
+    c, paciente, _ = cliente
+    html = c.get(f"/odontograma/{paciente.id}").text
+    assert f'id="painel-data" value="{date.today().isoformat()}"' in html
+
+
+def test_a_data_ja_vem_com_hoje_tambem_no_atendimento_sem_paciente(cliente):
+    from datetime import date
+
+    c, _, _ = cliente
+    html = c.get("/odontograma").text
+    assert f'id="painel-data" value="{date.today().isoformat()}"' in html
+
+
+def test_a_data_continua_editavel(cliente):
+    """Preencher com hoje e um padrao, nao uma trava."""
+    c, paciente, _ = cliente
+    html = c.get(f"/odontograma/{paciente.id}").text
+    campo = re.search(r'<input type="date" id="painel-data"[^>]*>', html).group(0)
+    assert "readonly" not in campo
+    assert "disabled" not in campo

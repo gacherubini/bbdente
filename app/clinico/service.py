@@ -526,28 +526,31 @@ def _somar(itens: list[dict]) -> Decimal:
     return sum((Decimal(i["valor"]) for i in itens), Decimal("0.00"))
 
 
-def atendimentos_do_dia(sessao: Session, *, clinica_id: int, dia: date) -> list[dict]:
-    """Quem foi atendido no dia, e o que foi feito em cada um.
+def _do_dia(
+    sessao: Session, *, clinica_id: int, dia: date, status: StatusLancamento
+) -> list[dict]:
+    """Os lancamentos de um dia com um status, agrupados por paciente.
 
-    So entra o que FOI FEITO: status REALIZADO com `data_realizada` no dia. Um
-    tratamento planejado para hoje e agenda, nao prontuario — e o repositorio ja
-    proibe chamar de a mesma coisa o que esta por fazer e o que foi feito.
-
-    Como nao existe entidade `atendimento` no banco, um atendimento aqui e "um
-    paciente num dia": duas idas da mesma pessoa no mesmo dia aparecem como uma.
-    Separar exigiria uma tabela nova e o backfill dos 44.812 lancamentos migrados.
+    A coluna de data muda com o status, e nao e detalhe: um lancamento planejado
+    tem `data_planejada`, um realizado tem `data_realizada`, e `lancar()` preenche
+    uma OU outra. Perguntar pela coluna errada devolve lista vazia em silencio.
 
     Devolve o `paciente_id`, nunca o nome: buscar nome aqui seria JOIN em tabela
     de outro modulo. Quem monta a tela resolve por `pacientes.service.nomes_de()`.
     """
+    quando = (
+        Lancamento.data_realizada
+        if status is StatusLancamento.REALIZADO
+        else Lancamento.data_planejada
+    )
     linhas = sessao.execute(
         select(Lancamento, Procedimento.nome, Odontograma.paciente_id)
         .join(Odontograma, Lancamento.odontograma_id == Odontograma.id)
         .join(Procedimento, Lancamento.procedimento_id == Procedimento.id)
         .where(
             Lancamento.clinica_id == clinica_id,
-            Lancamento.status == StatusLancamento.REALIZADO,
-            Lancamento.data_realizada == dia,
+            Lancamento.status == status,
+            quando == dia,
             Lancamento.excluido_em.is_(None),
         )
         .order_by(Odontograma.paciente_id, Lancamento.id)
@@ -575,6 +578,34 @@ def atendimentos_do_dia(sessao: Session, *, clinica_id: int, dia: date) -> list[
         }
         for paciente_id, do_paciente in _agrupar(itens, lambda i: i["paciente_id"])
     ]
+
+
+def atendimentos_do_dia(sessao: Session, *, clinica_id: int, dia: date) -> list[dict]:
+    """Quem foi atendido no dia, e o que foi feito em cada um.
+
+    So o que FOI FEITO. O planejado do mesmo dia sai por `planejados_do_dia()`, em
+    lista separada: e agenda, e somar os dois inflaria a producao do dia com
+    trabalho que ainda nao aconteceu.
+
+    Como nao existe entidade `atendimento` no banco, um atendimento aqui e "um
+    paciente num dia": duas idas da mesma pessoa no mesmo dia aparecem como uma.
+    Separar exigiria uma tabela nova e o backfill dos 44.812 lancamentos migrados.
+    """
+    return _do_dia(
+        sessao, clinica_id=clinica_id, dia=dia, status=StatusLancamento.REALIZADO
+    )
+
+
+def planejados_do_dia(sessao: Session, *, clinica_id: int, dia: date) -> list[dict]:
+    """Quem tem tratamento marcado para o dia, e qual.
+
+    Disjunto de `atendimentos_do_dia()`: um lancamento tem um status so, entao
+    nada aparece nas duas listas. Existe porque quem abre a tela quer saber quem
+    tem hora marcada — mas isto nunca entra na conta do que foi produzido.
+    """
+    return _do_dia(
+        sessao, clinica_id=clinica_id, dia=dia, status=StatusLancamento.PLANEJADO
+    )
 
 
 def atendimentos_do_paciente(

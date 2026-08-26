@@ -733,7 +733,7 @@ button.ligacao:hover { color: var(--roxo); }
   flex-wrap: wrap;
   padding: 10px 0 2px;
 }
-.atendimento-topo h2 { font-size: 15px; margin: 0; }
+.atendimento-topo h3 { font-size: 15px; margin: 0; font-weight: 650; }
 .atendimento-topo a { color: var(--texto); text-decoration: none; }
 .atendimento-topo a:hover { color: var(--roxo-esc); text-decoration: underline; }
 .atendimento-resumo { font-size: 12.5px; color: var(--texto-fraco); }
@@ -756,3 +756,32 @@ tbody tr.grupo-dia:hover td { background: var(--roxo-cl); }
   font-variant-numeric: tabular-nums;
 }
 .grupo-resumo { font-size: 11.5px; color: var(--roxo-esc); opacity: 0.85; }
+
+/* --- os dois blocos da tela do dia: o que foi feito e o que esta marcado --- */
+
+/* Separados de proposito. Somar os dois inflaria a producao do dia com trabalho
+   que ainda nao aconteceu — a mesma confusao entre "a fazer" e "feito" que o
+   AGENTS.md proibe entre a lista de pacientes e o financeiro. */
+.titulo-bloco {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--texto-fraco);
+  font-weight: 700;
+  margin: 26px 0 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.titulo-bloco-resumo { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.nota-bloco { font-size: 12px; color: var(--texto-fraco); margin: 4px 0 0; }
+
+/* O planejado fica visivel, mas nao compete com o que foi feito. */
+.atendimento.planejado {
+  border-style: dashed;
+  background: #FCFCFD;
+}
+.atendimento.planejado .atendimento-topo h3 a { color: var(--texto-fraco); }
+.atendimento.planejado .atendimento-topo h3 a:hover { color: var(--roxo-esc); }
