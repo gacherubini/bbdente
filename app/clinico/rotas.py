@@ -20,8 +20,9 @@ router = APIRouter()
 
 @router.get("/odontograma")
 def sem_paciente():
-    """Sem paciente escolhido nao ha o que desenhar: volta para a busca."""
-    return RedirectResponse("/pacientes", status_code=303)
+    """Sem paciente escolhido nao ha o que desenhar: volta para a busca dizendo
+    por que esta ali — senao o clique no menu nao da retorno nenhum."""
+    return RedirectResponse("/pacientes?escolher=odontograma", status_code=303)
 
 
 @router.get("/odontograma/{paciente_id}", response_class=HTMLResponse)

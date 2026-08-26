@@ -82,10 +82,11 @@ def test_paciente_inexistente_da_404(cliente):
 
 
 def test_odontograma_sem_paciente_volta_para_a_lista(cliente):
+    # O motivo de a lista ser avisada esta em test_odontograma_sem_paciente.py.
     c, _ = cliente
     resposta = c.get("/odontograma")
     assert resposta.status_code == 303
-    assert resposta.headers["location"] == "/pacientes"
+    assert resposta.headers["location"] == "/pacientes?escolher=odontograma"
 
 
 # --- contrato do desenhista ----------------------------------------------------

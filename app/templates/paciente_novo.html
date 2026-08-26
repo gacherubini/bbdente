@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block titulo %}Novo paciente — BDDente{% endblock %}
+{% block conteudo %}
+<h1>Novo paciente</h1>
+<p class="legenda-topo">
+  Só o essencial para abrir o odontograma. Endereço, CPF e o resto da ficha
+  podem ser preenchidos depois.
+</p>
+
+<form class="cartao-form" method="post" action="/pacientes/novo">
+  {% if erro %}<p class="painel-erro">{{ erro }}</p>{% endif %}
+
+  {% if parecidos %}
+  <div class="parecidos">
+    <p class="parecidos-titulo">Já existe cadastro parecido</p>
+    <p class="parecidos-ajuda">
+      Se for a mesma pessoa, abra o cadastro dela em vez de criar outro.
+    </p>
+    <ul>
+      {% for p in parecidos %}
+      <li>
+        <a class="nome" href="/odontograma/{{ p.id }}">{{ p.nome }}</a>
+        <span class="codigo">{{ p.codigo_legado or 'sem código' }}</span>
+        <span class="parecidos-data">
+          {% if p.ultimo_atendimento %}
+            último atendimento em {{ p.ultimo_atendimento.strftime('%d/%m/%Y') }}
+          {% else %}
+            sem atendimento registrado
+          {% endif %}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <label class="rotulo" for="nome">Nome</label>
+  <input type="text" id="nome" name="nome" maxlength="160" required autofocus
+         value="{{ dados.nome }}" placeholder="Nome completo">
+
+  <div class="linha-dupla">
+    <div>
+      <label class="rotulo" for="telefone">Telefone</label>
+      <input type="text" id="telefone" name="telefone" inputmode="tel"
+             value="{{ dados.telefone }}" placeholder="(11) 99999-9999">
+    </div>
+    <div>
+      <label class="rotulo" for="nascimento">Nascimento</label>
+      <input type="date" id="nascimento" name="nascimento" value="{{ dados.nascimento }}">
+    </div>
+  </div>
+
+  <label class="rotulo" for="convenio_id">Convênio</label>
+  {# 'PARTICULAR' e um convenio de verdade no catalogo (codigo 001), e e para onde
+     apontam os cadastros antigos sem plano. A opcao vazia aqui significa 'ainda nao
+     perguntei', nao 'particular' — senao os cadastros novos ficariam com convenio
+     nulo enquanto os 5.561 migrados apontam para o 001. #}
+  <select id="convenio_id" name="convenio_id">
+    <option value="">— não informado —</option>
+    {% for id, nome in convenios %}
+      <option value="{{ id }}" {{ 'selected' if dados.convenio_id == id|string }}>{{ nome }}</option>
+    {% endfor %}
+  </select>
+
+  {% if parecidos %}<input type="hidden" name="confirmar" value="1">{% endif %}
+
+  <div class="acoes-form">
+    <a class="botao-secundario" href="/pacientes">Cancelar</a>
+    <button type="submit" class="primario">
+      {% if parecidos %}Cadastrar mesmo assim{% else %}Cadastrar{% endif %}
+    </button>
+  </div>
+</form>
+{% endblock %}

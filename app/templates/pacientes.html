@@ -3,31 +3,48 @@
   'ativos': 'Ativos', 'com_pendencia': 'Com pendência',
   'em_aberto': 'Em aberto no financeiro', 'todos': 'Todos'
 } %}
+{% set link_novo = '/pacientes/novo?nome=' ~ termo|urlencode if termo else '/pacientes/novo' %}
 {% block titulo %}Pacientes — BDDente{% endblock %}
 {% block conteudo %}
-<h1>Pacientes</h1>
-<p class="legenda-topo">
-  {{ "{:,}".format(numeros.total).replace(",", ".") }} cadastrados ·
-  {{ numeros.ativos }} atendidos nos últimos 4 anos ·
-  {{ numeros.com_pendencia }} com tratamento pendente
-</p>
+<div class="topo-lista">
+  <div>
+    <h1>Pacientes</h1>
+    <p class="legenda-topo">
+      {{ "{:,}".format(numeros.total).replace(",", ".") }} cadastrados ·
+      {{ numeros.ativos }} atendidos nos últimos 4 anos ·
+      {{ numeros.com_pendencia }} com tratamento pendente
+    </p>
+  </div>
+  <a class="botao-primario" href="{{ link_novo }}">Novo paciente</a>
+</div>
+
+{% if escolher_paciente %}
+  <p class="aviso-escolha">Escolha um paciente para abrir o odontograma</p>
+{% endif %}
 
 <form class="busca" method="get" action="/pacientes">
   <span aria-hidden="true">⌕</span>
   <input name="q" value="{{ termo }}" autofocus
          placeholder="Buscar por nome, telefone ou código…">
   <input type="hidden" name="filtro" value="{{ filtro.value }}">
+  {% if escolher_paciente %}<input type="hidden" name="escolher" value="odontograma">{% endif %}
 </form>
 
 <div class="filtros">
   {% for f in filtros %}
     <a class="filtro {{ 'ativo' if f == filtro }}"
-       href="/pacientes?filtro={{ f.value }}{% if termo %}&q={{ termo }}{% endif %}">
+       href="/pacientes?filtro={{ f.value }}{% if termo %}&q={{ termo }}{% endif %}{% if escolher_paciente %}&escolher=odontograma{% endif %}">
       {{ rotulos[f.value] }}
     </a>
   {% endfor %}
 </div>
 
+{% if not linhas and termo %}
+  <p class="lista-vazia">
+    Nenhum paciente encontrado para «{{ termo }}» —
+    <a href="{{ link_novo }}">cadastrar «{{ termo }}»</a>
+  </p>
+{% else %}
 <table>
   <thead>
     <tr>
@@ -65,4 +82,5 @@
   {% endfor %}
   </tbody>
 </table>
+{% endif %}
 {% endblock %}

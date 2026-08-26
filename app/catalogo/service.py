@@ -30,6 +30,20 @@ def nomes_de_convenio(
     }
 
 
+def convenios(sessao: Session, *, clinica_id: int) -> list[tuple[int, str]]:
+    """Todos os convenios da clinica, na ordem do codigo — e o que a tela de
+    cadastro usa para montar o select. Devolve pares (id, nome) para quem chama
+    nao precisar do modelo Convenio, que nao atravessa a fronteira do modulo."""
+    return [
+        (c.id, c.nome)
+        for c in sessao.scalars(
+            select(Convenio)
+            .where(Convenio.clinica_id == clinica_id)
+            .order_by(Convenio.codigo, Convenio.nome)
+        )
+    ]
+
+
 def arvore(sessao: Session, *, clinica_id: int) -> list[dict]:
     """Catalogo agrupado por categoria, na ordem da tela. Alimenta o painel de
     lancamento e a tela de tratamentos."""
