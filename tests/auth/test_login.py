@@ -71,7 +71,6 @@ def test_login_errado_volta_para_a_tela_sem_cookie(cliente, katia):
     assert "senha" in resposta.text.lower()
 
 
-@pytest.mark.xfail(reason="rota /pacientes chega na Task 12")
 def test_pagina_protegida_sem_sessao_manda_para_o_login(cliente):
     resposta = cliente.get("/pacientes")
     assert resposta.status_code == 303

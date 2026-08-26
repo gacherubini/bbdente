@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.auth import rotas as auth_rotas
 from app.auth.sessao import PrecisaLogar, redirecionar_para_login
+from app.pacientes import rotas as pacientes_rotas
 
 
 def criar_app() -> FastAPI:
@@ -16,6 +17,7 @@ def criar_app() -> FastAPI:
     )
     app.add_exception_handler(PrecisaLogar, redirecionar_para_login)
     app.include_router(auth_rotas.router)
+    app.include_router(pacientes_rotas.router)
 
     @app.get("/saude")
     def saude() -> dict[str, str]:

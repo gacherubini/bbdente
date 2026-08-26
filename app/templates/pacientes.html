@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% set rotulos = {
+  'ativos': 'Ativos', 'com_pendencia': 'Com pendência',
+  'em_aberto': 'Em aberto no financeiro', 'todos': 'Todos'
+} %}
+{% block titulo %}Pacientes — BDDente{% endblock %}
+{% block conteudo %}
+<h1>Pacientes</h1>
+<p class="legenda-topo">
+  {{ "{:,}".format(numeros.total).replace(",", ".") }} cadastrados ·
+  {{ numeros.ativos }} atendidos nos últimos 4 anos ·
+  {{ numeros.com_pendencia }} com tratamento pendente
+</p>
+
+<form class="busca" method="get" action="/pacientes">
+  <span aria-hidden="true">⌕</span>
+  <input name="q" value="{{ termo }}" autofocus
+         placeholder="Buscar por nome, telefone ou código…">
+  <input type="hidden" name="filtro" value="{{ filtro.value }}">
+</form>
+
+<div class="filtros">
+  {% for f in filtros %}
+    <a class="filtro {{ 'ativo' if f == filtro }}"
+       href="/pacientes?filtro={{ f.value }}{% if termo %}&q={{ termo }}{% endif %}">
+      {{ rotulos[f.value] }}
+    </a>
+  {% endfor %}
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Paciente</th><th>Idade</th><th>Telefone</th><th>Último atendimento</th>
+      <th>Convênio</th><th style="text-align:center">Pendentes</th>
+      <th style="text-align:right">Em aberto</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for linha in linhas %}
+    <tr onclick="location.href='/odontograma/{{ linha.id }}'" style="cursor:pointer">
+      <td>
+        <a class="nome" href="/odontograma/{{ linha.id }}">{{ linha.nome }}</a>
+        <div class="codigo">{{ linha.codigo_legado or '—' }}</div>
+      </td>
+      <td>{% if linha.idade is not none %}{{ linha.idade }}
+          {% else %}<span class="aviso">sem data</span>{% endif %}</td>
+      <td>{% if linha.telefone %}{{ linha.telefone }}
+            {% if linha.telefone_suspeito %}<span class="aviso">curto</span>{% endif %}
+          {% else %}—{% endif %}</td>
+      <td>{% if linha.ultimo_atendimento %}
+            {{ linha.ultimo_atendimento.strftime('%d/%m/%Y') }}
+            {% if linha.data_suspeita %}<span class="aviso">data inválida</span>{% endif %}
+          {% else %}—{% endif %}</td>
+      <td>{{ linha.convenio or 'Particular' }}</td>
+      <td style="text-align:center">
+        <span class="selo {{ 'pendente' if linha.pendentes else 'zero' }}">{{ linha.pendentes }}</span>
+      </td>
+      <td style="text-align:right" class="numero">
+        {% if linha.em_aberto > 0 %}R$ {{ "%.2f"|format(linha.em_aberto) }}{% else %}—{% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" style="color:var(--texto-fraco)">Nenhum paciente encontrado.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
