@@ -37,7 +37,7 @@ def test_traz_as_12_categorias_reais(sessao, migrado, clinica):
     nao uma categoria."""
     assert migrado.categorias == 12
     nomes = {c.nome for c in sessao.query(Categoria).filter_by(clinica_id=clinica.id)}
-    assert "Dentistica" in nomes
+    assert "Dentística" in nomes
     assert "Endodontia" in nomes
     assert not any(n.startswith("Todas") for n in nomes)
 
@@ -56,9 +56,12 @@ def test_convenio_sem_nome_no_legado_ganha_rotulo_do_codigo(sessao, migrado):
     assert sessao.query(Convenio).filter_by(codigo="004").one().nome == "Convenio 004"
 
 
-def test_traz_os_477_procedimentos_distintos_e_612_precos(sessao, migrado):
-    assert migrado.procedimentos == 477
-    assert migrado.precos == 612
+def test_traz_os_476_procedimentos_distintos_e_606_precos(sessao, migrado):
+    """A V_PROCEDIMENTO tem 612 linhas, mas 6 sao o titulo da tabela de preco
+    gravado como servico CODSERV '00' ("TABELA DE ORTO", "UNIODONTO"...). Nenhuma
+    delas aparece em lancamento; nao sao procedimentos."""
+    assert migrado.procedimentos == 476
+    assert migrado.precos == 606
 
 
 def test_todo_procedimento_tem_categoria(sessao, migrado):
@@ -73,7 +76,7 @@ def test_todo_preco_aponta_para_procedimento_e_convenio_existentes(sessao, migra
         .join(Convenio, Preco.convenio_id == Convenio.id)
         .count()
     )
-    assert validos == total == 612
+    assert validos == total == 606
 
 
 def test_escopo_sugerido_vem_do_habito_real_dela(sessao, migrado):
@@ -82,10 +85,12 @@ def test_escopo_sugerido_vem_do_habito_real_dela(sessao, migrado):
     por_nome = {
         p.nome.upper(): p for p in sessao.query(Procedimento).all()
     }
-    classe_ii = next(p for n, p in por_nome.items() if "CLASSE II" in n and "III" not in n)
-    assert classe_ii.escopo_sugerido is Escopo.REGIOES
-    assert set(classe_ii.regioes_sugeridas) <= set(Regiao)
-    assert classe_ii.regioes_sugeridas  # nao vazio
+    # O nome no catalogo dela junta as classes: "RESTAURACAO RESINA FOTOATIVADA
+    # CLASSE II E III". E o procedimento de restauracao em parede.
+    restauracao = next(p for n, p in por_nome.items() if "CLASSE II" in n)
+    assert restauracao.escopo_sugerido is Escopo.REGIOES
+    assert set(restauracao.regioes_sugeridas) <= set(Regiao)
+    assert restauracao.regioes_sugeridas  # nao vazio
 
     consulta = next(p for n, p in por_nome.items() if n.startswith("CONSULTA"))
     assert consulta.escopo_sugerido is Escopo.BOCA
@@ -107,5 +112,5 @@ def test_rodar_duas_vezes_nao_duplica(sessao, clinica, migrado):
     sessao.flush()
     assert segundo.categorias == migrado.categorias
     assert sessao.query(Categoria).filter_by(clinica_id=clinica.id).count() == 12
-    assert sessao.query(Procedimento).count() == 477
-    assert sessao.query(Preco).count() == 612
+    assert sessao.query(Procedimento).count() == 476
+    assert sessao.query(Preco).count() == 606

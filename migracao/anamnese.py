@@ -14,12 +14,41 @@ from app.pacientes.models import Paciente
 from migracao.extrato import Extrato
 from migracao.texto import limpar
 
+# Codigo de paciente que so existe no ARQORCAM (orcamento), nunca virou cadastro,
+# mas tem anamnese respondida. Sao 22 respostas de uma pessoa so.
+MOTIVO_SO_ORCAMENTO = "cadastro_so_no_orcamento"
+
 
 @dataclass
 class ResultadoAnamnese:
     perguntas: int = 0
     respostas: int = 0
     observacoes: int = 0
+
+
+def _paciente_do_orcamento(
+    sessao: Session, extrato: Extrato, clinica_id: int, codigo: str
+) -> Paciente | None:
+    """Cria o cadastro de quem respondeu a anamnese mas so existe no ARQORCAM.
+
+    Resposta de anamnese e dado de saude: jogar as 22 respostas dela no cadastro
+    provisorio as misturaria com as de outra gente. O cadastro entra com o nome
+    real, marcado, e a dentista decide se vira paciente de verdade.
+    """
+    linhas = extrato.consultar(
+        "SELECT * FROM ARQORCAM WHERE TRIM(CODICLIE) = ?", (codigo,)
+    )
+    if not linhas:
+        return None
+    paciente = Paciente(
+        clinica_id=clinica_id,
+        codigo_legado=codigo,
+        nome=limpar(dict(linhas[0]).get("NOME")) or f"(sem nome) {codigo}",
+        revisar_motivo=[MOTIVO_SO_ORCAMENTO],
+    )
+    sessao.add(paciente)
+    sessao.flush()
+    return paciente
 
 
 def migrar(sessao: Session, extrato: Extrato, clinica_id: int) -> ResultadoAnamnese:
@@ -65,7 +94,13 @@ def migrar(sessao: Session, extrato: Extrato, clinica_id: int) -> ResultadoAnamn
 
     for tabela in ("ARQSINAO", "ARQSIQUA"):
         for linha in extrato.linhas(tabela):
-            paciente_id = pacientes.get(limpar(linha["CODICLIE"]))
+            codigo = limpar(linha["CODICLIE"])
+            paciente_id = pacientes.get(codigo)
+            if paciente_id is None and codigo is not None:
+                paciente = _paciente_do_orcamento(sessao, extrato, clinica_id, codigo)
+                if paciente is not None:
+                    pacientes[codigo] = paciente.id
+                    paciente_id = paciente.id
             pergunta = perguntas.get((limpar(linha["NUMQUEST"]) or "").zfill(2))
             if paciente_id is None or pergunta is None:
                 continue

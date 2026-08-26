@@ -21,6 +21,10 @@ from migracao.texto import limpar
 
 # ARQESPE tem 13 linhas; '00 Todas as Intervencoes' e um filtro de tela.
 CODIGO_CATEGORIA_FILTRO = "00"
+# Cada tabela de preco (ARQSE###) comeca com uma linha de titulo gravada como se
+# fosse servico: CODSERV "00", com nomes como "TABELA DE ORTO" ou "UNIODONTO".
+# Sao 6 linhas, nenhuma usada em lancamento algum. Nao sao procedimentos.
+CODIGO_SERVICO_TITULO = "00"
 CATEGORIA_PADRAO = "11"  # "Outros Servicos"
 VIGENCIA_INICIAL = date(2024, 6, 26)  # ultimo dia de uso do Dentalis
 # Uma regiao entra na sugestao se aparece em pelo menos 15% das ocorrencias do
@@ -147,6 +151,8 @@ def migrar(sessao: Session, extrato: Extrato, clinica_id: int) -> ResultadoCatal
 
     for par in pares:
         codigo = (limpar(par["CODSERV"]) or "").strip()
+        if codigo in ("", CODIGO_SERVICO_TITULO):
+            continue
         descricao = limpar(par["DESCRICAO"]) or f"Procedimento {codigo}"
         cod_conv = (limpar(par["CODCONV"]) or "").zfill(3)
 

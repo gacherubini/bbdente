@@ -121,8 +121,8 @@ bddente/
 | 3 | Notação de dentes | Conversão FDI, quadrante, raízes, rótulo incisal/oclusal |
 | 4 | Decodificador POSDENTE | Coordenada legada → escopo + região, com teste contra dados reais |
 | 5 | Schema e Alembic | Banco completo, migration sobe e desce limpa |
-| 6 | Migração: catálogo | 12 categorias, 7 convênios, 612 pares procedimento×preço, escopo sugerido |
-| 7 | Migração: pacientes | 5.561 pacientes com telefones, endereços e flags de revisão |
+| 6 | Migração: catálogo | 12 categorias, 7 convênios, 606 pares procedimento×preço, escopo sugerido |
+| 7 | Migração: pacientes | 5.559 cadastros com telefones, endereços e flags de revisão |
 | 8 | Migração: lançamentos | 44.812 lançamentos + 29.350 regiões |
 | 9 | Migração: condições, anamnese e **conferência** | 9.629 condições, 2.046 respostas, conferência bloqueante |
 | 10 | Autenticação | Login, sessão, auditoria |
@@ -9348,13 +9348,40 @@ Marque só quando todos passarem:
 - [ ] `pytest -v` verde, incluindo os testes de migração contra o extrato real
 - [ ] `ruff check .` sem erros
 - [ ] `python -m migracao` termina com **conferência aprovada**
-- [ ] O banco tem `5561 | 44812 | 29350 | 3461389.07`
+- [x] O banco tem `5561 | 44812 | 29350 | 3461389.07` — conferido em 26/08/2026
+      (5.561 = 5.559 do ARQCLIEN + 2 cadastros que a migração cria; ver abaixo)
 - [ ] Login funciona, sessão expira, `/pacientes` sem sessão vai para `/login`
 - [ ] Buscar um paciente e abrir o odontograma leva menos de 3 segundos
 - [ ] Lançar um tratamento numa região pinta o dente sem recarregar a página
 - [ ] "Repetir em outro dente" lança em 4 dentes com 4 cliques
 - [ ] O PDF do prontuário abre e tem o histórico dentro
 - [ ] Uma restauração de backup foi feita e conferida, com a data anotada
+
+## O que a execução mudou nos números do plano
+
+Os números abaixo foram estimados lendo o extrato antes de escrever o código. Rodar a
+migração de verdade mostrou seis lugares onde a contagem ingênua contava lixo ou
+perdia registro. Em todos, a regra que decidiu foi a mesma: **preservar e marcar**.
+
+| Onde | Plano | Real | Por quê |
+|---|---|---|---|
+| `procedimento` | 477 | 476 | `CODSERV '00'` é o título da tabela de preço ("TABELA DE ORTO"), não um serviço |
+| `preco` | 612 | 606 | as 6 linhas de título acima, uma delas de um convênio (`010`) que não existe |
+| `paciente` (ARQCLIEN) | 5.561 | 5.559 | `1659/PT` e `4783/PT` aparecem em duas linhas cada; viram um cadastro com os telefones das duas |
+| `paciente` (total) | 5.561 | 5.561 | 5.559 + o cadastro provisório dos 33 lançamentos sem `CODICLIE` + `1104/OR`, que só existia no ARQORCAM e tem anamnese |
+| `condicao` | 9.629 | 9.629 | mas 5.522 delas (`NUMDENTE` 81–88, ícones `OICOn`) não são de um dente: `condicao.dente` passou a aceitar nulo (migration `0002`) |
+| `resposta_anamnese` | 2.046 | 2.046 | 22 respostas apontavam para `1104/OR`; sem criar o cadastro dela, sumiriam |
+
+Três correções de código que a execução exigiu, além dessas:
+
+- **`separar()` de telefone** só quebrava em `/;,`. Campos como
+  `'32680751 OU 32680729 OU 99031569'` viravam um número de 32 dígitos, que nem
+  cabia na coluna. Agora espaço e palavra também separam, e um DDD solto
+  (`'51 36535051'`) volta para o número.
+- **`DATABASE_URL`**: o `fly postgres attach` grava `postgres://…`, que o SQLAlchemy
+  não aceita. A `app/config.py` normaliza.
+- **`scripts/backup.py`** fixava `PATH=/usr/bin:/bin`, o que impede o `pg_dump` de
+  ser encontrado na máquina Windows da clínica — que é justamente onde o backup roda.
 
 ## O que fica pendente de gente, não de código
 

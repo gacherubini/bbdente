@@ -171,3 +171,26 @@ def test_rodar_duas_vezes_nao_duplica(sessao, migrado):
     sessao.flush()
     assert sessao.query(Lancamento).count() == 44_812
     assert sessao.query(LancamentoRegiao).count() == 29_350
+
+
+def test_os_33_lancamentos_sem_paciente_ficam_num_cadastro_provisorio(sessao, migrado):
+    """33 linhas do ARQDENTE tem CODICLIE vazio — tratamento real (R$ 7.296,41,
+    entre 2001 e 2023) que perdeu o vinculo com a pessoa ainda no Dentalis.
+    Descartar seria perder atendimento; ficam num cadastro visivelmente provisorio,
+    marcado, para a dentista reconhecer pela data e reatribuir."""
+    provisorio = sessao.scalars(
+        select(Paciente).where(Paciente.codigo_legado == "SEM-CODIGO")
+    ).one()
+    assert "sem_paciente_no_legado" in provisorio.revisar_motivo
+    perdidos = sessao.scalars(
+        select(Lancamento).where(Lancamento.revisar_motivo.any("paciente_perdido"))
+    ).all()
+    assert len(perdidos) == 33
+    donos = set(
+        sessao.scalars(
+            select(Odontograma.paciente_id).where(
+                Odontograma.id.in_({p.odontograma_id for p in perdidos})
+            )
+        )
+    )
+    assert donos == {provisorio.id}

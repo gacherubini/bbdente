@@ -64,9 +64,12 @@ def test_condicao_guarda_o_codigo_de_icone_original(sessao, tudo_migrado):
 
 
 def test_condicao_com_dente_sentinela_nao_vira_dente_invalido(sessao, tudo_migrado):
-    """ARQICONE tem NUMDENTE ate '88'. So entram as que apontam para dente real."""
+    """ARQICONE tem NUMDENTE ate '88'. De 81 para cima nao e dente: a condicao
+    entra sem dente, nunca com um numero fora da notacao FDI."""
     dentes = {d for (d,) in sessao.query(Condicao.dente).distinct()}
-    assert dentes <= set(TODOS_FDI)
+    assert dentes - {None} <= set(TODOS_FDI)
+    sem_dente = sessao.query(Condicao).filter(Condicao.dente.is_(None)).count()
+    assert sem_dente == 5_522
 
 
 def test_traz_as_37_perguntas_e_2046_respostas(sessao, tudo_migrado):
@@ -103,3 +106,17 @@ def test_conferencia_falhou_e_uma_excecao_com_a_lista_dentro():
     erro = ConferenciaFalhou(["paciente: esperado 5561, encontrado 5560"])
     assert erro.divergencias == ["paciente: esperado 5561, encontrado 5560"]
     assert "5560" in str(erro)
+
+
+def test_a_anamnese_de_quem_so_existe_no_orcamento_nao_se_perde(sessao, tudo_migrado):
+    """As 22 respostas de '1104/OR' (LAUTILDA) apontam para um cadastro que so
+    existe no ARQORCAM, nunca virou paciente. Resposta de anamnese e dado de saude:
+    junta-la a outra pessoa seria pior do que criar o cadastro que faltava."""
+    lautilda = sessao.scalars(
+        select(Paciente).where(Paciente.codigo_legado == "1104/OR")
+    ).one()
+    assert "cadastro_so_no_orcamento" in lautilda.revisar_motivo
+    respostas = (
+        sessao.query(RespostaAnamnese).filter_by(paciente_id=lautilda.id).count()
+    )
+    assert respostas == 22

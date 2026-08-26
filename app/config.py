@@ -1,4 +1,17 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def normalizar_url(url: str) -> str:
+    """Deixa qualquer URL de Postgres no formato que o psycopg 3 entende.
+
+    O `fly postgres attach` grava 'postgres://...'; o SQLAlchemy nao conhece esse
+    esquema, e 'postgresql://' sozinho procura o psycopg2, que nao instalamos.
+    """
+    for prefixo in ("postgres://", "postgresql://"):
+        if url.startswith(prefixo):
+            return "postgresql+psycopg://" + url[len(prefixo):]
+    return url
 
 
 class Config(BaseSettings):
@@ -15,6 +28,11 @@ class Config(BaseSettings):
     # Em producao o cookie de sessao so viaja por HTTPS. Fica False no dev local
     # porque o navegador recusa cookie secure em http://localhost.
     cookie_seguro: bool = False
+
+    @field_validator("database_url", "database_url_teste")
+    @classmethod
+    def _normalizar(cls, valor: str) -> str:
+        return normalizar_url(valor)
 
 
 config = Config()

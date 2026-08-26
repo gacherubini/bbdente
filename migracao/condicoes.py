@@ -14,6 +14,7 @@ from app.pacientes.models import Paciente
 from app.shared.dentes import fdi_de_indice_legado
 from app.shared.tipos import TipoCondicao
 from migracao.extrato import Extrato
+from migracao.lancamentos import CODIGO_SEM_PACIENTE, paciente_sem_codigo
 from migracao.texto import limpar
 
 
@@ -31,7 +32,14 @@ def migrar(sessao: Session, extrato: Extrato, clinica_id: int) -> int:
 
     total = 0
     for linha in extrato.linhas("ARQICONE"):
-        paciente_id = pacientes.get(limpar(linha["CODICLIE"]))
+        codigo_paciente = limpar(linha["CODICLIE"])
+        if codigo_paciente is None:
+            # 9 linhas sem CODICLIE, como os 33 lancamentos: vao para o mesmo
+            # cadastro provisorio em vez de sumir.
+            codigo_paciente = CODIGO_SEM_PACIENTE
+            if CODIGO_SEM_PACIENTE not in pacientes:
+                pacientes[CODIGO_SEM_PACIENTE] = paciente_sem_codigo(sessao, clinica_id).id
+        paciente_id = pacientes.get(codigo_paciente)
         if paciente_id is None:
             continue
 
@@ -39,9 +47,10 @@ def migrar(sessao: Session, extrato: Extrato, clinica_id: int) -> int:
         try:
             fdi = fdi_de_indice_legado(int(bruto))
         except ValueError:
-            # ARQICONE tem NUMDENTE ate '88' (sentinela de tela). Sem dente real,
-            # a condicao nao tem onde ser desenhada.
-            continue
+            # NUMDENTE 81 a 88 e a faixa de icones da boca inteira ('OICOn'), nao
+            # um dente. A condicao entra sem dente: nao da para desenha-la no
+            # odontograma, mas o codigo fica guardado para a Dra. Katia traduzir.
+            fdi = None
 
         numero_odo = int(float(linha["NUMODO"] or 1)) or 1
         chave = (paciente_id, numero_odo)

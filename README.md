@@ -7,7 +7,7 @@ O MVP entrega login, cadastro de pacientes, odontograma com lançamento de trata
 catálogo de tratamentos, anamnese e exportação do prontuário em PDF — **com os 30 anos
 de histórico clínico migrados**, sem perder um registro.
 
-- Uma dentista, um consultório, 5.561 pacientes no cadastro histórico
+- Uma dentista, um consultório, 5.559 pacientes no cadastro histórico
 - 44.812 lançamentos clínicos e 9.629 condições pré-existentes a preservar
 - Uso em produção real desde o primeiro dia: migração, LGPD e backup são escopo do
   MVP, não fase 2

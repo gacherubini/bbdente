@@ -27,6 +27,9 @@ STATUS_LEGADO: dict[str, StatusLancamento] = {
     "J": StatusLancamento.PLANEJADO,
 }
 CATEGORIA_PADRAO = "11"  # "Outros Servicos"
+# 33 linhas do ARQDENTE tem CODICLIE vazio: tratamento real que perdeu o vinculo
+# com a pessoa ainda dentro do Dentalis. Vao para este cadastro provisorio.
+CODIGO_SEM_PACIENTE = "SEM-CODIGO"
 
 
 @dataclass
@@ -64,6 +67,30 @@ def _procedimento_desconhecido(
     return proc
 
 
+def paciente_sem_codigo(sessao: Session, clinica_id: int) -> Paciente:
+    """Cadastro provisorio para os lancamentos que perderam o CODICLIE.
+
+    Descartar seria perder atendimento (R$ 7.296,41 entre 2001 e 2023); inventar um
+    dono seria pior. Fica visivel e marcado, para a dentista reconhecer pela data e
+    reatribuir quando quiser."""
+    paciente = sessao.scalars(
+        select(Paciente).where(
+            Paciente.clinica_id == clinica_id,
+            Paciente.codigo_legado == CODIGO_SEM_PACIENTE,
+        )
+    ).first()
+    if paciente is None:
+        paciente = Paciente(
+            clinica_id=clinica_id,
+            codigo_legado=CODIGO_SEM_PACIENTE,
+            nome="(lancamentos sem paciente no Dentalis)",
+            revisar_motivo=["sem_paciente_no_legado"],
+        )
+        sessao.add(paciente)
+        sessao.flush()
+    return paciente
+
+
 def migrar(sessao: Session, extrato: Extrato, clinica_id: int) -> ResultadoLancamentos:
     resultado = ResultadoLancamentos()
 
@@ -95,10 +122,16 @@ def migrar(sessao: Session, extrato: Extrato, clinica_id: int) -> ResultadoLanca
 
     for ordem, linha in enumerate(extrato.linhas("ARQDENTE")):
         codigo_paciente = limpar(linha["CODICLIE"])
+        motivo_paciente: list[str] = []
+        if codigo_paciente is None:
+            codigo_paciente = CODIGO_SEM_PACIENTE
+            if CODIGO_SEM_PACIENTE not in pacientes:
+                pacientes[CODIGO_SEM_PACIENTE] = paciente_sem_codigo(sessao, clinica_id).id
+            motivo_paciente = ["paciente_perdido"]
         paciente_id = pacientes.get(codigo_paciente)
         if paciente_id is None:
-            # O extrato ja provou ter zero referencias orfas; se aparecer uma, e
-            # bug de codigo, nao dado ruim. Falha alto.
+            # Codigo preenchido que nao existe no cadastro seria bug de codigo, nao
+            # dado ruim: o extrato provou ter zero referencias desse tipo.
             raise ValueError(f"lancamento aponta para paciente inexistente: {codigo_paciente!r}")
 
         codigo_legado = f"{codigo_paciente}#{ordem}"
@@ -116,7 +149,7 @@ def migrar(sessao: Session, extrato: Extrato, clinica_id: int) -> ResultadoLanca
             resultado.odontogramas += 1
 
         alvo = decodificar(linha["NUMDENTE"], linha["POSDENTE"])
-        motivos = list(alvo.motivos)
+        motivos = list(alvo.motivos) + motivo_paciente
 
         cod_serv = (limpar(linha["CODSERV"]) or "").strip()
         procedimento_id = procedimentos.get(cod_serv)

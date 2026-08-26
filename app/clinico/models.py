@@ -116,7 +116,10 @@ class Condicao(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     odontograma_id: Mapped[int] = mapped_column(ForeignKey("odontograma.id"), index=True)
-    dente: Mapped[int] = mapped_column(SmallInteger)
+    # Nulo quando a condicao nao e de um dente: 5.522 registros do ARQICONE usam
+    # NUMDENTE 81 a 88, que no Dentalis era a faixa de icones da boca inteira
+    # (codigos 'OICOn'), nao um dente. Entram sem dente e nao sao desenhadas.
+    dente: Mapped[int | None] = mapped_column(SmallInteger)
     tipo: Mapped[TipoCondicao] = mapped_column(TIPO_CONDICAO_PG)
     regioes: Mapped[list[Regiao]] = mapped_column(
         ARRAY(REGIAO_PG), default=list, server_default="{}"

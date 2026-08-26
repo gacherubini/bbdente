@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.catalogo.models import Convenio
 from app.pacientes.models import Paciente, PacienteEndereco, PacienteTelefone
-from app.pacientes.telefone import parecer_incompleto, separar
+from app.pacientes.telefone import parecer_incompleto, parecer_longo, separar
 from migracao.extrato import Extrato
 from migracao.texto import data_legada, limpar
 
@@ -52,6 +52,65 @@ def _endereco(
     )
 
 
+def _gravar_contatos(
+    sessao: Session, paciente: Paciente, linha: dict, resultado: ResultadoPacientes
+) -> list[str]:
+    """Grava telefones e enderecos de uma linha do ARQCLIEN. Devolve os motivos de
+    revisao que os telefones geraram."""
+    motivos: list[str] = []
+    ja_gravados = {t.numero for t in paciente.telefones}
+    # 12 pacientes repetem o mesmo numero em residencial e comercial, e as linhas
+    # duplicadas repetem quase tudo. Numero igual duas vezes nao acrescenta
+    # informacao — o campo cru fica no numero_original da linha que ficou.
+    primeiro = not ja_gravados
+    for bruto in (linha["TELEFONE"], linha["TELECOM"]):
+        for numero in separar(bruto):
+            if numero in ja_gravados:
+                continue
+            ja_gravados.add(numero)
+            if parecer_incompleto(numero) and "telefone_incompleto" not in motivos:
+                motivos.append("telefone_incompleto")
+            if parecer_longo(numero) and "telefone_suspeito" not in motivos:
+                motivos.append("telefone_suspeito")
+            sessao.add(
+                PacienteTelefone(
+                    paciente_id=paciente.id,
+                    numero=numero,
+                    numero_original=limpar(bruto),
+                    principal=primeiro,
+                )
+            )
+            resultado.telefones += 1
+            primeiro = False
+
+    tipos_gravados = {e.tipo for e in paciente.enderecos}
+    for tipo, campos in (
+        ("RESIDENCIAL", ("ENDERECO", "BAIRRO", "CIDADE", "UF", "CEP")),
+        ("COMERCIAL", ("ENDCOM", "BAICOM", "CIDCOM", "UFCOM", "CEPCOM")),
+    ):
+        if tipo in tipos_gravados:
+            continue
+        endereco = _endereco(paciente.id, tipo, linha, campos)
+        if endereco is not None:
+            sessao.add(endereco)
+            resultado.enderecos += 1
+    return motivos
+
+
+def _juntar_contatos(
+    sessao: Session, paciente: Paciente, linha: dict, resultado: ResultadoPacientes
+) -> None:
+    """Segunda linha de um codigo repetido: so os contatos que ainda faltam."""
+    sessao.flush()
+    motivos = list(paciente.revisar_motivo or [])
+    for motivo in _gravar_contatos(sessao, paciente, linha, resultado):
+        if motivo not in motivos:
+            motivos.append(motivo)
+    if "possivel_duplicata" not in motivos:
+        motivos.append("possivel_duplicata")
+    paciente.revisar_motivo = motivos
+
+
 def migrar(sessao: Session, extrato: Extrato, clinica_id: int) -> ResultadoPacientes:
     resultado = ResultadoPacientes()
 
@@ -65,8 +124,18 @@ def migrar(sessao: Session, extrato: Extrato, clinica_id: int) -> ResultadoPacie
     }
     nomes_repetidos = _duplicados_por_nome(extrato)
 
+    vistos: set[str | None] = set()
+
     for linha in extrato.linhas("ARQCLIEN", ordem="CODICLIE"):
         codigo = limpar(linha["CODICLIE"])
+        if codigo in vistos:
+            # Dois codigos ('1659/PT' e '4783/PT') aparecem em duas linhas do
+            # ARQCLIEN. Vira um cadastro so — o lancamento aponta para o codigo,
+            # nao para a linha — mas os contatos das duas linhas sao guardados,
+            # e o cadastro ja entra marcado como possivel_duplicata.
+            _juntar_contatos(sessao, existentes[codigo], linha, resultado)
+            continue
+        vistos.add(codigo)
         if codigo in existentes:
             resultado.pacientes += 1
             continue
@@ -108,32 +177,7 @@ def migrar(sessao: Session, extrato: Extrato, clinica_id: int) -> ResultadoPacie
         existentes[codigo] = paciente
         resultado.pacientes += 1
 
-        bruto_residencial = linha["TELEFONE"]
-        bruto_comercial = linha["TELECOM"]
-        primeiro = True
-        for bruto in (bruto_residencial, bruto_comercial):
-            for numero in separar(bruto):
-                if parecer_incompleto(numero) and "telefone_incompleto" not in motivos:
-                    motivos.append("telefone_incompleto")
-                sessao.add(
-                    PacienteTelefone(
-                        paciente_id=paciente.id,
-                        numero=numero,
-                        numero_original=limpar(bruto),
-                        principal=primeiro,
-                    )
-                )
-                resultado.telefones += 1
-                primeiro = False
-
-        for tipo, campos in (
-            ("RESIDENCIAL", ("ENDERECO", "BAIRRO", "CIDADE", "UF", "CEP")),
-            ("COMERCIAL", ("ENDCOM", "BAICOM", "CIDCOM", "UFCOM", "CEPCOM")),
-        ):
-            endereco = _endereco(paciente.id, tipo, linha, campos)
-            if endereco is not None:
-                sessao.add(endereco)
-                resultado.enderecos += 1
+        motivos.extend(_gravar_contatos(sessao, paciente, linha, resultado))
 
         if motivos:
             paciente.revisar_motivo = motivos

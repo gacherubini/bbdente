@@ -137,3 +137,10 @@ Nenhum destes é esquecimento — são escolhas registradas para não virarem su
   gente depois não muda o schema.
 - Sem paginação: a busca limita a 100 resultados.
 - Só dentição permanente (32 dentes). Decíduo fica para v2.
+- **Dois cadastros do banco não são pessoas do ARQCLIEN**, e é de propósito:
+  `SEM-CODIGO` guarda os 33 lançamentos cujo `CODICLIE` já vinha vazio do Dentalis, e
+  `1104/OR` é alguém que só existia no arquivo de orçamento mas tinha anamnese
+  respondida. Ambos entram marcados em `revisar_motivo`. Por isso `paciente` tem
+  5.561 linhas para 5.559 cadastros vindos do ARQCLIEN.
+- **`condicao.dente` pode ser nulo**: 5.522 dos 9.629 ícones do Dentalis (`OICOn`) são
+  da boca inteira, não de um dente. Entram guardados, mas não são desenhados.

@@ -21,6 +21,13 @@ from app.pacientes.models import Paciente
 from app.shared.dentes import TODOS_FDI
 from app.shared.tipos import Escopo
 
+# 5.561 linhas no ARQCLIEN, mas dois codigos ('1659/PT' e '4783/PT') aparecem
+# duas vezes cada. Viram um cadastro so, com os contatos das duas linhas e a
+# marcacao possivel_duplicata — o lancamento aponta para o codigo, nao para a
+# linha, entao dois cadastros com o mesmo codigo dividiriam o historico.
+# Mais dois cadastros que a migracao cria: o provisorio que recebe os 33
+# lancamentos sem CODICLIE, e '1104/OR', que so existia no ARQORCAM e tem
+# anamnese respondida.
 ESPERADO_PACIENTES = 5_561
 ESPERADO_LANCAMENTOS = 44_812
 ESPERADO_REGIOES = 29_350

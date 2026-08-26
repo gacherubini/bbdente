@@ -90,7 +90,7 @@ A conferência é bloqueante e checa:
 
 | O quê | Esperado |
 |---|---|
-| `paciente` | 5.561 |
+| `paciente` | 5.559 (5.561 linhas, 2 códigos repetidos viram um cadastro só) |
 | `lancamento` | 44.812 |
 | `lancamento_regiao` | 29.350 |
 | `SUM(lancamento.valor)` | R$ 3.461.389,07 |
@@ -108,7 +108,7 @@ SELECT (SELECT count(*) FROM paciente)          AS pacientes,
        (SELECT count(*) FROM lancamento)        AS lancamentos,
        (SELECT count(*) FROM lancamento_regiao) AS regioes,
        (SELECT sum(valor) FROM lancamento)      AS soma;
--- 5561 | 44812 | 29350 | 3461389.07
+-- 5559 | 44812 | 29350 | 3461389.07
 ```
 
 ### 5. Se a conferência reprovar
@@ -126,10 +126,14 @@ pacientes, e a dentista corrige quando quiser.
 | Problema | O que acontece |
 |---|---|
 | Datas impossíveis (1194, 2080, 9200) — ~15 registros | importa e marca `data_suspeita` |
-| 2 pacientes duplicados (`1659/PT`, `4783/PT`) | importa os dois e marca `possivel_duplicata` |
+| 2 códigos duplicados (`1659/PT`, `4783/PT`) — a mesma pessoa em duas linhas | vira um cadastro só, com os telefones das duas linhas, marcado `possivel_duplicata` |
 | Telefone com vários números num campo | separa e formata, guardando `numero_original` |
 | 247 lançamentos sem descrição de tratamento | cria `DESCONHECIDO (cód. X)` e marca |
 | 39 registros com escopo boca mas dente preenchido | importa como `BOCA` e marca |
+| 33 lançamentos e 9 condições com `CODICLIE` vazio (R$ 7.296,41, de 2001 a 2023) | vão para o cadastro `SEM-CODIGO`, marcado `sem_paciente_no_legado` |
+| 22 respostas de anamnese de `1104/OR`, que só existe no arquivo de orçamento | cria o cadastro dela, marcado `cadastro_so_no_orcamento` — juntar dado de saúde de gente diferente seria pior |
+| 5.522 ícones de boca inteira (`NUMDENTE` 81–88) | entram como condição sem dente; o código do ícone fica guardado |
+| Telefone que ficou grande demais depois de separar (2 números colados por hífen) | grava assim mesmo e marca `telefone_suspeito` |
 | 1 registro com `POSDENTE` inválido (`"13-3"`) | importa como `DENTE` e marca |
 
 ## O que fica de fora

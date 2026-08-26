@@ -30,16 +30,18 @@ def migrado(sessao):
     return clinica, resultado
 
 
-def test_traz_os_5561_pacientes(sessao, migrado):
+def test_traz_os_5559_cadastros(sessao, migrado):
+    """5.561 linhas no ARQCLIEN — duas delas repetem o codigo de outra linha e
+    entram no mesmo cadastro, marcadas."""
     _, resultado = migrado
-    assert resultado.pacientes == 5_561
-    assert sessao.query(Paciente).count() == 5_561
+    assert resultado.pacientes == 5_559
+    assert sessao.query(Paciente).count() == 5_559
 
 
 def test_nenhum_paciente_perde_o_codigo_legado(sessao, migrado):
     assert sessao.query(Paciente).filter(Paciente.codigo_legado.is_(None)).count() == 0
     codigos = sessao.query(func.count(func.distinct(Paciente.codigo_legado))).scalar()
-    assert codigos == 5_561
+    assert codigos == 5_559
 
 
 def test_nenhum_paciente_fica_sem_nome(sessao, migrado):
@@ -61,9 +63,9 @@ def test_telefone_multiplo_vira_varias_linhas_com_o_original_guardado(sessao, mi
     assert sum(1 for t in linhas if t.principal) == 1
 
 
-def test_1574_pacientes_sem_nascimento_entram_assim_mesmo(sessao, migrado):
+def test_1572_pacientes_sem_nascimento_entram_assim_mesmo(sessao, migrado):
     """Faltar data nao e motivo para recusar o cadastro."""
-    assert sessao.query(Paciente).filter(Paciente.nascimento.is_(None)).count() == 1_574
+    assert sessao.query(Paciente).filter(Paciente.nascimento.is_(None)).count() == 1_572
 
 
 def test_data_impossivel_e_preservada_e_marcada(sessao, migrado):
@@ -114,4 +116,16 @@ def test_rodar_duas_vezes_nao_duplica(sessao, migrado):
     with Extrato(EXTRATO) as extrato:
         migrar(sessao, extrato, clinica.id)
     sessao.flush()
-    assert sessao.query(Paciente).count() == 5_561
+    assert sessao.query(Paciente).count() == 5_559
+
+
+def test_a_linha_duplicada_nao_leva_o_telefone_dela_embora(sessao, migrado):
+    """'1659/PT' aparece duas vezes no ARQCLIEN, com telefones diferentes em cada
+    linha. Vira um cadastro so — os lancamentos apontam para o codigo, nao para a
+    linha — mas os telefones das duas linhas ficam guardados."""
+    paciente = sessao.scalars(
+        select(Paciente).where(Paciente.codigo_legado == "1659/PT")
+    ).one()
+    numeros = {t.numero for t in paciente.telefones}
+    assert "5197546623" in numeros  # so aparece na primeira linha
+    assert "32461359" in numeros  # so aparece na segunda
