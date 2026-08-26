@@ -5,6 +5,8 @@ ordem do indice sequencial 1..32 do Dentalis. Essa coincidencia e o unico motivo
 pelo qual a conversao de/para o legado e uma indexacao simples.
 """
 
+from enum import StrEnum
+
 from app.shared.tipos import Regiao
 
 FDI_SUPERIOR: tuple[int, ...] = (18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28)
@@ -91,3 +93,52 @@ def rotulo_regiao(regiao: Regiao, fdi: int) -> str:
     if regiao is Regiao.OCLUSAL and e_anterior(fdi):
         return "Incisal"
     return _ROTULOS[regiao]
+
+
+class Parede(StrEnum):
+    """Os quatro lados do quadrado que desenha um dente na tela."""
+
+    CIMA = "CIMA"
+    BAIXO = "BAIXO"
+    ESQUERDA = "ESQUERDA"
+    DIREITA = "DIREITA"
+
+
+def arcada_superior(fdi: int) -> bool:
+    return quadrante(fdi) in (1, 2)
+
+
+def _mesial_a_direita_na_tela(fdi: int) -> bool:
+    """A tela e espelhada na linha media (entre 11 e 21, e entre 41 e 31).
+
+    Quadrantes 1 e 4 sao desenhados na metade ESQUERDA; para eles a linha media
+    fica a direita, entao a parede da direita e a mesial. Quadrantes 2 e 3, o
+    contrario.
+    """
+    return quadrante(fdi) in (1, 4)
+
+
+def paredes_do_dente(fdi: int) -> dict[Parede, Regiao]:
+    """Qual regiao cada lado do desenho representa.
+
+    Esta funcao existe para que a regra de espelhamento NAO fique no JavaScript:
+    ela e testada aqui e viaja pronta no JSON.
+    """
+    vestibular_em_cima = arcada_superior(fdi)
+    mesial_a_direita = _mesial_a_direita_na_tela(fdi)
+    return {
+        Parede.CIMA: Regiao.VESTIBULAR if vestibular_em_cima else Regiao.LINGUAL,
+        Parede.BAIXO: Regiao.LINGUAL if vestibular_em_cima else Regiao.VESTIBULAR,
+        Parede.DIREITA: Regiao.MESIAL if mesial_a_direita else Regiao.DISTAL,
+        Parede.ESQUERDA: Regiao.DISTAL if mesial_a_direita else Regiao.MESIAL,
+    }
+
+
+def canais_em_ordem_de_tela(fdi: int) -> tuple[Regiao, ...]:
+    """Os canais da esquerda para a direita no desenho.
+
+    canais_do_dente() devolve em ordem anatomica (mesial -> distal); aqui a ordem
+    e a da tela, que inverte nos quadrantes 2 e 3.
+    """
+    canais = canais_do_dente(fdi)
+    return canais if not _mesial_a_direita_na_tela(fdi) else tuple(reversed(canais))
