@@ -7,6 +7,9 @@ dados_extraidos/
 *.DBF
 *.csv
 *.rar
+# O dump do backup e o prontuario inteiro num arquivo so.
+backups/
+*.dump
 
 # Segredos
 .env

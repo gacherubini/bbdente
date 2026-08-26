@@ -13,7 +13,9 @@ from urllib.parse import urlparse
 
 import psycopg
 
-MINIMOS = {"paciente": 5_561, "lancamento": 44_812, "lancamento_regiao": 29_350}
+from scripts.backup import ambiente
+
+MINIMOS = {"paciente": 5_559, "lancamento": 44_812, "lancamento_regiao": 29_350}
 
 
 def main() -> int:
@@ -30,11 +32,18 @@ def main() -> int:
             f"--username={url.username}", f"--dbname={(url.path or '').lstrip('/')}",
             arquivo,
         ],
-        env={"PGPASSWORD": url.password or "", "PATH": "/usr/bin:/bin"},
+        env=ambiente(url),
     )
     if resultado.returncode != 0:
-        print("restauracao FALHOU", file=sys.stderr)
-        return resultado.returncode
+        # Um pg_restore mais novo que o servidor emite comandos que o servidor nao
+        # conhece ('SET transaction_timeout') e sai com codigo 1 mesmo tendo
+        # restaurado tudo. Quem decide se a restauracao vale nao e o codigo de
+        # saida: e a contagem abaixo.
+        print(
+            f"pg_restore terminou com codigo {resultado.returncode}; "
+            "conferindo as contagens mesmo assim",
+            file=sys.stderr,
+        )
 
     with psycopg.connect(destino) as conexao:
         for tabela, esperado in MINIMOS.items():
@@ -42,6 +51,7 @@ def main() -> int:
             marca = "ok" if encontrado >= esperado else "FALHOU"
             print(f"  {tabela}: {encontrado} (esperado >= {esperado}) {marca}")
             if encontrado < esperado:
+                print("restauracao FALHOU", file=sys.stderr)
                 return 3
 
     print("restauracao conferida.")

@@ -1,5 +1,5 @@
 app = "bddente"
-primary_region = "gru"
+primary_region = "iad"  # Ashburn, Virginia — escolhido por custo
 
 [build]
   dockerfile = "Dockerfile"
@@ -10,9 +10,13 @@ primary_region = "gru"
 [http_service]
   internal_port = 8080
   force_https = true
+  # A maquina desliga quando ninguem esta usando e volta sozinha na primeira
+  # requisicao. Um consultorio usa o sistema algumas horas por dia: manter a
+  # maquina ligada 24h custa varias vezes mais e nao serve para nada de madrugada.
+  # O preco e alguns segundos na primeira tela do dia.
   auto_stop_machines = "suspend"
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 0
 
   [[http_service.checks]]
     grace_period = "10s"

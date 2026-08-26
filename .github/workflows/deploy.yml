@@ -1,0 +1,32 @@
+name: deploy
+
+# Deploy automatico ao entrar codigo na main. So depois do CI passar: o banco tem 30
+# anos de prontuario dentro, e subir uma versao que nem passa nos testes e o tipo de
+# pressa que custa caro.
+on:
+  workflow_run:
+    workflows: ["ci"]
+    branches: [main]
+    types: [completed]
+
+concurrency:
+  group: deploy-producao
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Nao deploya se o CI reprovou, nem se o CI rodou por causa de um pull request.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      # As migrations nao rodam sozinhas: aplicar schema em producao e decisao de
+      # quem sabe o que a migration faz. Ver docs/OPERACAO.md.

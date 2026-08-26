@@ -53,3 +53,16 @@ def test_a_imagem_leva_os_scripts_que_o_manual_manda_rodar_dentro_dela():
     """
     dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
     assert "COPY scripts" in dockerfile
+
+
+def test_o_ambiente_do_pg_dump_herda_o_path_da_maquina():
+    """O backup roda na maquina da clinica (Windows) apontando para o banco do Fly
+    por `fly proxy`. Um PATH fixo de Linux fazia o pg_dump nem ser encontrado."""
+    import os
+    from urllib.parse import urlparse
+
+    from scripts.backup import ambiente
+
+    env = ambiente(urlparse("postgresql://bddente:segredo@localhost:5432/bddente"))
+    assert env["PGPASSWORD"] == "segredo"
+    assert env.get("PATH") == os.environ.get("PATH")
