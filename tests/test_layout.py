@@ -40,11 +40,17 @@ def test_o_nome_aparece_em_branco_sobre_a_lateral_roxa():
     assert lateral and "roxo" in lateral.group(1)
 
 
-def test_a_navegacao_tem_as_tres_abas_mais_o_financeiro_em_breve():
+def test_a_navegacao_tem_as_quatro_abas():
     html = BASE.read_text(encoding="utf-8")
     for rotulo in ("Pacientes", "Odontograma", "Tratamentos", "Financeiro"):
         assert rotulo in html
-    assert "em breve" in html
+
+
+def test_nenhuma_aba_promete_o_que_ainda_nao_existe():
+    """O Financeiro dizia 'em breve' desde o MVP. Agora existe."""
+    html = BASE.read_text(encoding="utf-8")
+    assert "em breve" not in html
+    assert 'href="/financeiro"' in html
 
 
 def test_o_layout_expoe_os_blocos_que_as_telas_usam():

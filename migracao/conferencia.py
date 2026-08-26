@@ -47,6 +47,10 @@ ESPERADO_PACIENTES_COM_PARCELA = 5_340
 # Cinco linhas com ano fora de 1900-2035 (0200, 0202, 0203, 9200). Entram com a
 # data como veio, marcadas — preservar e marcar, nunca chutar o seculo.
 ESPERADO_PARCELAS_MARCADAS = 5
+# O Dentalis registrava carne regravando o saldo a cada pagamento. 3.014
+# grupos, 8.177 linhas; a ultima de cada grupo e a divida que sobrou, as
+# 5.163 anteriores ficam marcadas e fora da soma do que ha para receber.
+ESPERADO_SUBSTITUIDAS = 5_163
 
 
 class ConferenciaFalhou(RuntimeError):
@@ -154,6 +158,13 @@ def conferir(sessao: Session, clinica_id: int) -> list[str]:
         .filter(Parcela.clinica_id == clinica_id)
         .scalar(),
         ESPERADO_PACIENTES_COM_PARCELA,
+    )
+    comparar(
+        "parcela substituida por outra do mesmo carne",
+        sessao.query(Parcela)
+        .filter(Parcela.clinica_id == clinica_id, Parcela.substituida.is_(True))
+        .count(),
+        ESPERADO_SUBSTITUIDAS,
     )
     comparar(
         "parcela marcada para revisar",

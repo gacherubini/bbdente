@@ -32,10 +32,54 @@ from migracao.texto import data_legada, limpar
 CODIGO_SEM_FORMA = "00"
 
 
+def _degraus_de_carne(extrato: Extrato) -> set[int]:
+    """As linhas que sao degrau de um carne, pela ordem de leitura.
+
+    O Dentalis nao tinha tabela de carne: quando o paciente pagava uma parcela,
+    ele REGRAVAVA o saldo restante numa linha nova, com o mesmo vencimento. Sete
+    linhas com valor caindo 1.200, 1.050, 900, 750, 600, 450, 300 e R$ 150 pagos
+    em cada nao sao sete dividas de R$ 5.250 — sao uma divida de R$ 1.200 paga em
+    sete vezes, com R$ 150 ainda em aberto.
+
+    Somar todas inflaria o que ha para receber em R$ 1.392.888,31 (41%). Entao
+    marcamos as linhas ja superadas: elas continuam no banco, com o valor como
+    veio, mas ficam de fora da conta da divida. Os pagamentos delas continuam
+    contando — cada um foi dinheiro que entrou de verdade.
+
+    A regra e deliberadamente estreita, e so pega grupo que nao deixa duvida:
+    mesmo paciente, mesmo vencimento, valores estritamente decrescentes, e cada
+    degrau igual ao valor pago naquela linha. Sao 3.014 grupos, 8.177 linhas.
+    """
+    grupos: dict[tuple, list[tuple[int, Decimal, Decimal]]] = {}
+    for ordem, linha in enumerate(extrato.linhas("ARQFAT")):
+        chave = (limpar(linha["CODICLIE"]), limpar(linha["DTVENCTO"]))
+        grupos.setdefault(chave, []).append(
+            (ordem, _valor(linha["ORIGINAL"]), _valor(linha["VALORPAG"]))
+        )
+
+    superadas: set[int] = set()
+    for linhas in grupos.values():
+        if len(linhas) < 2:
+            continue
+        emordem = sorted(linhas, key=lambda item: item[1], reverse=True)
+        valores = [valor for _, valor, _ in emordem]
+        if len(set(valores)) != len(valores):
+            continue  # empate: nao da para dizer qual veio antes
+        pagos = [pago for _, _, pago in emordem]
+        degraus = [valores[i] - valores[i + 1] for i in range(len(valores) - 1)]
+        if degraus != pagos[:-1]:
+            continue
+        # A ultima (menor valor) e a divida que sobrou; as anteriores ja foram
+        # substituidas por ela.
+        superadas.update(ordem for ordem, _, _ in emordem[:-1])
+    return superadas
+
+
 @dataclass
 class ResultadoFinanceiro:
     parcelas: int = 0
     marcadas: int = 0
+    substituidas: int = 0
     ja_existiam: int = 0
     soma_cobrada: Decimal = field(default_factory=lambda: Decimal("0"))
     soma_paga: Decimal = field(default_factory=lambda: Decimal("0"))
@@ -45,6 +89,7 @@ class ResultadoFinanceiro:
             f"{self.parcelas} parcelas "
             f"(cobrado R$ {self.soma_cobrada}, pago R$ {self.soma_paga}), "
             f"{self.marcadas} marcadas para revisar, "
+            f"{self.substituidas} substituidas por outra do mesmo carne, "
             f"{self.ja_existiam} ja estavam no banco"
         )
 
@@ -75,6 +120,7 @@ def migrar(sessao: Session, extrato: Extrato, clinica_id: int) -> ResultadoFinan
         for p in sessao.scalars(select(Paciente).where(Paciente.clinica_id == clinica_id))
     }
     formas = _formas_de_pagamento(extrato)
+    degraus = _degraus_de_carne(extrato)
     ja_migradas = {
         codigo
         for (codigo,) in sessao.query(Parcela.codigo_legado).filter(
@@ -137,11 +183,14 @@ def migrar(sessao: Session, extrato: Extrato, clinica_id: int) -> ResultadoFinan
                 desconto=_valor(linha["DESCONTO"]),
                 forma_pagamento=forma,
                 observacao=limpar(linha["OBSERV"]),
+                substituida=ordem in degraus,
                 codigo_legado=codigo_legado,
                 revisar_motivo=motivos,
             )
         )
         resultado.parcelas += 1
+        if ordem in degraus:
+            resultado.substituidas += 1
         resultado.soma_cobrada += cobrado
         resultado.soma_paga += pago
         if motivos:

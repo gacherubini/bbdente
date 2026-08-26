@@ -639,3 +639,65 @@ button.ligacao:hover { color: var(--roxo); }
   background: #FEE2E2;
   font-size: 12.5px;
 }
+
+/* --- financeiro --- */
+.seletor-periodo { display: flex; align-items: flex-end; gap: 10px; }
+.seletor-periodo .rotulo { margin: 0 0 4px; }
+.seletor-periodo select {
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  padding: 8px 10px;
+  font-size: 13px;
+  background: #fff;
+}
+.aviso {
+  background: var(--roxo-cl);
+  color: var(--roxo-esc);
+  border-radius: var(--raio);
+  padding: 10px 13px;
+  font-size: 13px;
+  margin: 0 0 16px;
+}
+.cartoes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 6px;
+}
+.cartao {
+  border: 1px solid var(--borda);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cartao-rotulo {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94A3B8;
+}
+.cartao strong { font-size: 21px; }
+.cartao-ajuda { font-size: 12px; color: var(--texto-fraco); }
+.grafico { margin-top: 8px; overflow-x: auto; }
+.grafico-vazio { color: var(--texto-fraco); font-size: 13px; margin: 20px 0; }
+.pizzas { display: flex; flex-wrap: wrap; gap: 32px; }
+.pizzas > div { flex: 1 1 300px; min-width: 0; }
+.legenda-pizza { list-style: none; margin: 6px 0 0; padding: 0; font-size: 12.5px; }
+.legenda-pizza li { display: flex; align-items: center; gap: 7px; margin-bottom: 3px; }
+.legenda-pizza li span { flex: 1; }
+.legenda-pizza i {
+  width: 11px; height: 11px; border-radius: 3px; display: inline-block; flex: none;
+}
+/* Os mesmos numeros do grafico, em texto. Fica escondido para quem enxerga o
+   desenho e disponivel para leitor de tela e para quando o JS nao carrega. */
+.tabela-equivalente {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block titulo %}Financeiro — BDDente{% endblock %}
+{% block conteudo %}
+<div class="topo-lista">
+  <div>
+    <h1>Financeiro</h1>
+    <p class="legenda-topo">{{ nome_do_mes }} de {{ ano }}</p>
+  </div>
+
+  <form class="seletor-periodo" method="get" action="/financeiro">
+    <label class="rotulo" for="mes">Mês</label>
+    <select id="mes" name="mes" onchange="this.form.submit()">
+      {% for nome in meses %}
+        <option value="{{ loop.index }}" {{ 'selected' if loop.index == mes }}>
+          {{ nome }}
+        </option>
+      {% endfor %}
+    </select>
+
+    <label class="rotulo" for="ano">Ano</label>
+    <select id="ano" name="ano" onchange="this.form.submit()">
+      {% if ano not in anos %}<option value="{{ ano }}" selected>{{ ano }}</option>{% endif %}
+      {% for a in anos %}
+        <option value="{{ a }}" {{ 'selected' if a == ano }}>{{ a }}</option>
+      {% endfor %}
+    </select>
+    {% if cobranca_completa %}<input type="hidden" name="cobranca" value="tudo">{% endif %}
+    <noscript><button type="submit" class="secundario">Ver</button></noscript>
+  </form>
+</div>
+
+{% if vazio %}
+  <p class="aviso">
+    Nada registrado em {{ nome_do_mes }} de {{ ano }}.
+    {% if anos %}
+      O movimento mais recente é de <a href="/financeiro?ano={{ anos[0] }}&mes=12">{{ anos[0] }}</a>.
+    {% endif %}
+  </p>
+{% endif %}
+
+<div class="cartoes">
+  <div class="cartao">
+    <span class="cartao-rotulo">Recebido</span>
+    <strong class="numero">R$ {{ numeros.recebido | moeda }}</strong>
+    <span class="cartao-ajuda">dinheiro que entrou no mês</span>
+  </div>
+  <div class="cartao">
+    <span class="cartao-rotulo">Produzido</span>
+    <strong class="numero">R$ {{ numeros.produzido | moeda }}</strong>
+    <span class="cartao-ajuda">tratamento feito no mês</span>
+  </div>
+  <div class="cartao">
+    <span class="cartao-rotulo">A receber</span>
+    <strong class="numero">R$ {{ numeros.a_receber | moeda }}</strong>
+    <span class="cartao-ajuda">tudo que venceu e não foi pago</span>
+  </div>
+  <div class="cartao">
+    <span class="cartao-rotulo">Tratamentos</span>
+    <strong class="numero">{{ numeros.tratamentos }}</strong>
+    <span class="cartao-ajuda">realizados no mês</span>
+  </div>
+</div>
+
+{# Feito e recebido sao coisas diferentes de proposito: um tratamento feito em
+   marco pode ser pago em julho. #}
+<p class="painel-dica">
+  <b>Recebido</b> e <b>produzido</b> raramente são iguais no mesmo mês — um
+  tratamento feito em março pode ser pago em julho.
+</p>
+
+<h2 class="titulo-historico">Dinheiro recebido em {{ ano }}</h2>
+<div id="grafico-meses" class="grafico"></div>
+<table class="tabela-equivalente">
+  <caption>Recebido mês a mês em {{ ano }}</caption>
+  <thead><tr><th>Mês</th><th style="text-align:right">Recebido</th></tr></thead>
+  <tbody>
+    {% for nome in meses %}
+      <tr><td>{{ nome }}</td>
+          <td style="text-align:right" class="numero">
+            R$ {{ graficos.recebido_por_mes[loop.index0] | moeda }}
+          </td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2 class="titulo-historico">Tratamentos por dia em {{ nome_do_mes }}</h2>
+<div id="grafico-dias" class="grafico"></div>
+<table class="tabela-equivalente">
+  <caption>Tratamentos realizados por dia</caption>
+  <thead><tr><th>Dia</th><th style="text-align:right">Tratamentos</th></tr></thead>
+  <tbody>
+    {% for quantos in graficos.tratamentos_por_dia %}
+      <tr><td>{{ loop.index }}</td>
+          <td style="text-align:right" class="numero">{{ quantos }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2 class="titulo-historico">De onde veio a produção de {{ nome_do_mes }}</h2>
+<div class="pizzas">
+  <div>
+    <p class="rotulo">Por categoria</p>
+    <div id="grafico-categoria" class="grafico"></div>
+  </div>
+  <div>
+    <p class="rotulo">Por convênio</p>
+    <div id="grafico-convenio" class="grafico"></div>
+  </div>
+</div>
+<table class="tabela-equivalente">
+  <caption>Produção por categoria e por convênio</caption>
+  <thead><tr><th>Fatia</th><th>Onde</th><th style="text-align:right">Valor</th></tr></thead>
+  <tbody>
+    {% for nome, valor in graficos.por_categoria %}
+      <tr><td>{{ nome }}</td><td>categoria</td>
+          <td style="text-align:right" class="numero">R$ {{ valor | moeda }}</td></tr>
+    {% endfor %}
+    {% for nome, valor in graficos.por_convenio %}
+      <tr><td>{{ nome }}</td><td>convênio</td>
+          <td style="text-align:right" class="numero">R$ {{ valor | moeda }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2 class="titulo-historico">
+  A receber
+  <span class="legenda-topo">
+    {% if cobranca_completa %}
+      tudo, desde 1996 ·
+      <a href="/financeiro?ano={{ ano }}&mes={{ mes }}">só os últimos 2 anos</a>
+    {% else %}
+      vencidas nos últimos 2 anos ·
+      <a href="/financeiro?ano={{ ano }}&mes={{ mes }}&cobranca=tudo">ver tudo</a>
+    {% endif %}
+  </span>
+</h2>
+<table>
+  <thead>
+    <tr><th>Paciente</th><th>Venceu em</th><th>Atraso</th>
+        <th style="text-align:right">Cobrado</th>
+        <th style="text-align:right">Pago</th>
+        <th style="text-align:right">Saldo</th></tr>
+  </thead>
+  <tbody>
+  {% for linha in cobranca %}
+    <tr>
+      <td class="nome">
+        <a href="/odontograma/{{ linha.paciente_id }}">{{ linha.paciente }}</a>
+      </td>
+      <td>{{ linha.vencimento.strftime('%d/%m/%Y') }}</td>
+      <td>{{ linha.dias_vencida }} dias</td>
+      <td style="text-align:right" class="numero">R$ {{ linha.cobrado | moeda }}</td>
+      <td style="text-align:right" class="numero">R$ {{ linha.pago | moeda }}</td>
+      <td style="text-align:right" class="numero">R$ {{ linha.saldo | moeda }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" style="color:var(--texto-fraco)">
+      Nada vencido no período. {% if not cobranca_completa %}
+      <a href="/financeiro?ano={{ ano }}&mes={{ mes }}&cobranca=tudo">Ver o histórico completo</a>.
+      {% endif %}
+    </td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
+
+{% block scripts %}
+<script type="application/json" id="dados-graficos">{{ graficos | tojson }}</script>
+<script src="/static/graficos.js"></script>
+{% endblock %}

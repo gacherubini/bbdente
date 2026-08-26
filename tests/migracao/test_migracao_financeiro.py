@@ -135,4 +135,82 @@ def test_o_resultado_conta_o_que_gravou(caixa_migrado):
     _, resultado = caixa_migrado
     assert resultado.parcelas == 28_244
     assert resultado.marcadas == 5
+    assert resultado.substituidas == 5_163
     assert resultado.soma_paga.quantize(Decimal("0.01")) == Decimal("2378315.73")
+
+
+# --- carne: o Dentalis regravava o saldo a cada pagamento -----------------------
+
+
+def test_as_linhas_superadas_de_um_carne_entram_marcadas(sessao, caixa_migrado):
+    """3.014 grupos, 8.177 linhas: a ultima de cada grupo e a divida que sobrou,
+    as 5.163 anteriores ja foram substituidas por ela."""
+    marcadas = sessao.query(Parcela).filter(Parcela.substituida.is_(True)).count()
+    assert marcadas == 5_163
+
+
+def test_a_divida_real_e_menor_do_que_a_soma_ingenua(sessao, caixa_migrado):
+    """Somar toda linha daria R$ 3.430.481,53 e contaria a mesma divida ate sete
+    vezes. Pulando as substituidas, sobram R$ 2.037.593,22."""
+    ingenua = Decimal(
+        sessao.query(
+            func.sum(Parcela.valor_cobrado - Parcela.valor_pago)
+        ).scalar()
+    ).quantize(Decimal("0.01"))
+    assert ingenua == Decimal("3430481.53")
+
+    real = Decimal(
+        sessao.query(func.sum(Parcela.valor_cobrado - Parcela.valor_pago))
+        .filter(Parcela.substituida.is_(False))
+        .scalar()
+    ).quantize(Decimal("0.01"))
+    assert real == Decimal("2037593.22")
+
+
+def test_o_dinheiro_recebido_conta_todos_os_degraus(sessao, caixa_migrado):
+    """O que se conta duas vezes num carne e a divida, nunca o dinheiro: cada
+    degrau registra um pagamento que aconteceu."""
+    soma = sessao.query(func.sum(Parcela.valor_pago)).scalar()
+    assert Decimal(soma).quantize(Decimal("0.01")) == Decimal("2378315.73")
+    das_substituidas = sessao.query(func.sum(Parcela.valor_pago)).filter(
+        Parcela.substituida.is_(True)
+    ).scalar()
+    assert Decimal(das_substituidas) > 0
+
+
+def test_parcela_sozinha_nunca_e_marcada_como_substituida(sessao, caixa_migrado):
+    """A regra so pega grupo de mesmo paciente e mesmo vencimento: toda linha
+    marcada tem de ter ao menos uma irma que a substituiu."""
+    grupos = sessao.execute(
+        select(
+            Parcela.paciente_id,
+            Parcela.vencimento,
+            func.count(),
+            func.count().filter(Parcela.substituida.is_(True)),
+        ).group_by(Parcela.paciente_id, Parcela.vencimento)
+    ).all()
+    solitarias = [
+        (paciente_id, vencimento)
+        for paciente_id, vencimento, total, marcadas in grupos
+        if marcadas and total < 2
+    ]
+    assert solitarias == []
+
+
+def test_o_grupo_marcado_sempre_guarda_uma_linha_nao_marcada(sessao, caixa_migrado):
+    """A divida que sobrou tem de continuar visivel: marcar o grupo inteiro
+    sumiria com ela da cobranca."""
+    grupos = sessao.execute(
+        select(
+            Parcela.paciente_id,
+            Parcela.vencimento,
+            func.count(),
+            func.count().filter(Parcela.substituida.is_(True)),
+        ).group_by(Parcela.paciente_id, Parcela.vencimento)
+    ).all()
+    inteiros = [
+        (paciente_id, vencimento)
+        for paciente_id, vencimento, total, marcadas in grupos
+        if marcadas and marcadas == total
+    ]
+    assert inteiros == []

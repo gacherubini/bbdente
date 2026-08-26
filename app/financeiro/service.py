@@ -65,7 +65,12 @@ def _decimal(bruto) -> Decimal:
 
 def recebido(sessao: Session, *, clinica_id: int, de: date, ate: date) -> Decimal:
     """Dinheiro que entrou no periodo. Segue a data do PAGAMENTO, nunca a do
-    vencimento — parcela de 2020 paga hoje e dinheiro de hoje."""
+    vencimento — parcela de 2020 paga hoje e dinheiro de hoje.
+
+    Nao pula as parcelas `substituida`, de proposito: cada degrau de um carne
+    registra um pagamento que aconteceu de verdade. O que se conta duas vezes
+    num carne e a divida, nunca o dinheiro.
+    """
     return _decimal(
         sessao.scalars(
             select(func.coalesce(func.sum(Parcela.valor_pago), 0)).where(
@@ -78,9 +83,14 @@ def recebido(sessao: Session, *, clinica_id: int, de: date, ate: date) -> Decima
 def a_receber_total(sessao: Session, *, clinica_id: int, ate: date) -> Decimal:
     """Saldo de tudo que ja venceu: cobrado menos pago.
 
-    E `cobrado - pago`, e nao a soma das parcelas sem data de pagamento, porque
-    7.849 parcelas do historico foram pagas pela METADE — tem data e ainda assim
-    devem. Somar so as sem data esconderia mais da metade da divida.
+    Duas correcoes que mudam muito o numero, e as duas vem do dado real:
+
+    - E `cobrado - pago`, e nao a soma das parcelas sem data de pagamento: 7.849
+      parcelas do historico foram pagas pela METADE — tem data e ainda assim
+      devem. Somar so as sem data esconderia mais da metade da divida.
+    - As parcelas `substituida` ficam de fora. O Dentalis registrava carne
+      regravando o saldo a cada pagamento, e somar todas as linhas do mesmo
+      carne contava a mesma divida sete vezes.
     """
     return _decimal(
         sessao.scalars(
@@ -88,7 +98,11 @@ def a_receber_total(sessao: Session, *, clinica_id: int, ate: date) -> Decimal:
                 func.coalesce(
                     func.sum(Parcela.valor_cobrado - Parcela.valor_pago), 0
                 )
-            ).where(*_vivas(clinica_id), Parcela.vencimento <= ate)
+            ).where(
+                *_vivas(clinica_id),
+                Parcela.substituida.is_(False),
+                Parcela.vencimento <= ate,
+            )
         ).one()
     )
 
@@ -195,6 +209,9 @@ def a_receber(
             select(Parcela)
             .where(
                 *_vivas(clinica_id),
+                # A linha superada por outra do mesmo carne ja foi cobrada na
+                # seguinte: listar as duas cobraria a mesma divida duas vezes.
+                Parcela.substituida.is_(False),
                 Parcela.vencimento <= ate,
                 Parcela.vencimento >= desde,
                 Parcela.valor_cobrado > Parcela.valor_pago,

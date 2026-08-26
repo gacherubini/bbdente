@@ -9,6 +9,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -73,6 +74,14 @@ class Parcela(Base):
     # e quase sempre nulo: 28.234 das 28.244 linhas tinham CODTPAG '00'.
     forma_pagamento: Mapped[str | None] = mapped_column(String(40))
     observacao: Mapped[str | None] = mapped_column(Text)
+
+    # O Dentalis registrava carne regravando o SALDO a cada pagamento: sete
+    # linhas com o mesmo vencimento e valor caindo 1.200, 1.050, 900... sao uma
+    # divida so, nao sete. As linhas anteriores ficam marcadas aqui — continuam
+    # no banco, mas nao entram na soma do que ha para receber.
+    substituida: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
 
     # CODICLIE|PARCELA|DTVENCTO do Dentalis, para reconciliar depois.
     codigo_legado: Mapped[str | None] = mapped_column(String(40), index=True)
