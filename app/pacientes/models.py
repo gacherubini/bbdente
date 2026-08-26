@@ -38,8 +38,16 @@ class Paciente(Base):
     )
     excluido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    # O filtro do `excluido_em` mora aqui para que todo leitor de
+    # `paciente.telefones` — ficha, busca, PDF — veja so os numeros vivos, sem
+    # precisar lembrar da regra em cada consulta.
     telefones: Mapped[list["PacienteTelefone"]] = relationship(
-        back_populates="paciente", cascade="all"
+        back_populates="paciente",
+        cascade="all",
+        primaryjoin=(
+            "and_(Paciente.id == PacienteTelefone.paciente_id,"
+            " PacienteTelefone.excluido_em.is_(None))"
+        ),
     )
     enderecos: Mapped[list["PacienteEndereco"]] = relationship(
         back_populates="paciente", cascade="all"
@@ -55,6 +63,8 @@ class PacienteTelefone(Base):
     # O campo cru do Dentalis, guardado caso a separacao em varios numeros erre.
     numero_original: Mapped[str | None] = mapped_column(String(60))
     principal: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Trocar o telefone nao apaga o antigo: ele sai da ficha e fica no banco.
+    excluido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     paciente: Mapped[Paciente] = relationship(back_populates="telefones")
 

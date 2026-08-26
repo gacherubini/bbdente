@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block titulo %}Editar {{ paciente.nome }} — BDDente{% endblock %}
+{% block conteudo %}
+<h1>Editar cadastro</h1>
+<p class="legenda-topo">
+  {# O codigo do Dentalis aparece, mas nao e editavel: e a chave que liga este
+     cadastro aos 30 anos de historico migrado. #}
+  {{ paciente.codigo_legado or 'sem código do Dentalis' }} ·
+  <a href="/odontograma/{{ paciente.id }}">voltar para o odontograma</a>
+</p>
+
+<form class="cartao-form" method="post"
+      action="/pacientes/{{ paciente.id }}/editar">
+  {% if erro %}<p class="painel-erro">{{ erro }}</p>{% endif %}
+
+  <label class="rotulo" for="nome">Nome</label>
+  <input type="text" id="nome" name="nome" maxlength="160" required autofocus
+         value="{{ dados.nome }}">
+
+  <div class="linha-dupla">
+    <div>
+      <label class="rotulo" for="telefone">Telefone</label>
+      <input type="text" id="telefone" name="telefone" inputmode="tel"
+             value="{{ dados.telefone }}" placeholder="(11) 99999-9999">
+    </div>
+    <div>
+      <label class="rotulo" for="nascimento">Nascimento</label>
+      <input type="date" id="nascimento" name="nascimento"
+             value="{{ dados.nascimento }}">
+    </div>
+  </div>
+  <p class="painel-dica">
+    Mais de um número? Separe por barra. O número trocado não é apagado — sai da
+    ficha e continua guardado.
+  </p>
+
+  <label class="rotulo" for="convenio_id">Convênio</label>
+  <select id="convenio_id" name="convenio_id">
+    <option value="">— não informado —</option>
+    {% for id, nome in convenios %}
+      <option value="{{ id }}" {{ 'selected' if dados.convenio_id == id|string }}>
+        {{ nome }}
+      </option>
+    {% endfor %}
+  </select>
+
+  {% if paciente.revisar_motivo %}
+    <p class="painel-dica">
+      Marcado para revisar:
+      {{ paciente.revisar_motivo | join(', ') | replace('_', ' ') }}.
+      Corrigir o que está errado tira a marca.
+    </p>
+  {% endif %}
+
+  <div class="acoes-form">
+    <a class="botao-secundario" href="/odontograma/{{ paciente.id }}">Cancelar</a>
+    <button type="submit" class="primario">Salvar</button>
+  </div>
+</form>
+{% endblock %}

@@ -2,7 +2,7 @@
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
@@ -268,6 +268,62 @@ def semelhantes(
     )
 
 
+# As marcas que a tela de edicao sabe conferir — e portanto as unicas que ela pode
+# tirar. Marca de outra origem (`cadastro_so_no_orcamento`, `paciente_perdido`)
+# continua intocada: quem nao sabe verificar nao apaga.
+MARCAS_DE_TELEFONE = ("telefone_incompleto", "telefone_suspeito")
+
+
+def _gravar_telefones(
+    sessao: Session, *, paciente: Paciente, bruto: str
+) -> list[str]:
+    """Poe no cadastro exatamente os numeros que vieram no texto, e devolve as
+    marcas de revisao que eles merecem.
+
+    Numero que ja estava fica como esta; numero que saiu do texto e marcado com
+    `excluido_em`, nunca apagado — pode ser a unica forma de achar alguem que
+    nao volta ha vinte anos. A regua e a MESMA da migracao: numero estranho entra
+    marcado, jamais corrigido no chute nem recusado.
+    """
+    pedidos: list[str] = []
+    for numero in separar(bruto):
+        if numero not in pedidos:
+            pedidos.append(numero)
+
+    vivos = {t.numero: t for t in paciente.telefones}
+    for numero, telefone in vivos.items():
+        if numero not in pedidos:
+            telefone.excluido_em = datetime.now(UTC)
+
+    for posicao, numero in enumerate(pedidos):
+        atual = vivos.get(numero)
+        if atual is not None:
+            atual.principal = posicao == 0
+            continue
+        sessao.add(
+            PacienteTelefone(
+                paciente_id=paciente.id,
+                numero=numero,
+                # O texto cru como foi digitado, caso a separacao erre.
+                numero_original=bruto,
+                principal=posicao == 0,
+            )
+        )
+    sessao.flush()
+    # As linhas novas foram inseridas por `paciente_id`, nao anexadas a colecao:
+    # sem expirar, quem ler `paciente.telefones` depois — inclusive uma consulta
+    # nova, que nao sobrescreve atributo ja carregado — enxerga a lista velha.
+    sessao.expire(paciente, ["telefones"])
+
+    motivos: list[str] = []
+    for numero in pedidos:
+        if parecer_incompleto(numero) and "telefone_incompleto" not in motivos:
+            motivos.append("telefone_incompleto")
+        if parecer_longo(numero) and "telefone_suspeito" not in motivos:
+            motivos.append("telefone_suspeito")
+    return motivos
+
+
 def criar(
     sessao: Session,
     *,
@@ -305,27 +361,7 @@ def criar(
     sessao.flush()
 
     bruto = (telefone or "").strip()
-    motivos: list[str] = []
-    gravados: set[str] = set()
-    primeiro = True
-    for numero in separar(bruto):
-        if numero in gravados:
-            continue
-        gravados.add(numero)
-        if parecer_incompleto(numero) and "telefone_incompleto" not in motivos:
-            motivos.append("telefone_incompleto")
-        if parecer_longo(numero) and "telefone_suspeito" not in motivos:
-            motivos.append("telefone_suspeito")
-        sessao.add(
-            PacienteTelefone(
-                paciente_id=paciente.id,
-                numero=numero,
-                # O texto cru como foi digitado, caso a separacao erre.
-                numero_original=bruto,
-                principal=primeiro,
-            )
-        )
-        primeiro = False
+    motivos = _gravar_telefones(sessao, paciente=paciente, bruto=bruto)
     if motivos:
         paciente.revisar_motivo = motivos
     sessao.flush()
@@ -337,6 +373,69 @@ def criar(
         acao="CRIAR",
         entidade="paciente",
         entidade_id=paciente.id,
+        depois={
+            "nome": nome,
+            "nascimento": nascimento.isoformat() if nascimento else None,
+            "convenio_id": convenio_id,
+            "telefone": bruto or None,
+        },
+    )
+    return paciente
+
+
+def atualizar(
+    sessao: Session,
+    *,
+    clinica_id: int,
+    usuario_id: int,
+    paciente_id: int,
+    nome: str,
+    telefone: str | None = None,
+    nascimento: date | None = None,
+    convenio_id: int | None = None,
+) -> Paciente:
+    """Corrige o cadastro. Faz flush, nunca commit — quem chama decide gravar.
+
+    O `codigo_legado` NAO entra: e a chave que liga este cadastro aos 30 anos de
+    historico do Dentalis, e editar seria cortar o fio.
+
+    Corrigir tira a marca: cadastro que estava marcado como telefone incompleto e
+    ganhou um numero bom perde a marca, e a lista de 'revisar' encolhe com o
+    trabalho da recepcao. So saem as marcas que esta funcao sabe conferir.
+    """
+    nome = (nome or "").strip()
+    if not nome:
+        raise ValueError("o nome do paciente e obrigatorio")
+
+    paciente = obter(sessao, clinica_id=clinica_id, paciente_id=paciente_id)
+    if paciente is None:
+        raise LookupError("paciente nao encontrado nesta clinica")
+
+    antes = {
+        "nome": paciente.nome,
+        "nascimento": paciente.nascimento.isoformat() if paciente.nascimento else None,
+        "convenio_id": paciente.convenio_id,
+        "telefone": ", ".join(t.numero for t in paciente.telefones) or None,
+    }
+
+    paciente.nome = nome
+    paciente.nascimento = nascimento
+    paciente.convenio_id = convenio_id
+
+    bruto = (telefone or "").strip()
+    marcas = _gravar_telefones(sessao, paciente=paciente, bruto=bruto)
+    outras = [m for m in paciente.revisar_motivo if m not in MARCAS_DE_TELEFONE]
+    paciente.revisar_motivo = outras + marcas
+    sessao.flush()
+
+    registrar(
+        sessao,
+        clinica_id=clinica_id,
+        usuario_id=usuario_id,
+        acao="ATUALIZAR",
+        entidade="paciente",
+        entidade_id=paciente.id,
+        antes=antes,
         depois={
             "nome": nome,
             "nascimento": nascimento.isoformat() if nascimento else None,
