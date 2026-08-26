@@ -24,6 +24,8 @@ class Paciente(Base):
     indicacao: Mapped[str | None] = mapped_column(String(60))
     pai: Mapped[str | None] = mapped_column(String(120))
     mae: Mapped[str | None] = mapped_column(String(120))
+    # Texto livre: o que a recepcao anota nao cabe em campo estruturado.
+    observacao: Mapped[str | None] = mapped_column(Text)
 
     # FK declarada por nome: pacientes NAO importa o modelo Convenio. Para exibir o
     # nome do convenio, chame catalogo.service.convenio(id).

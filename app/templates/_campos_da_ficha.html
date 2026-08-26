@@ -1,0 +1,52 @@
+{# Os campos alem do essencial, um arquivo so para as duas telas — cadastro e
+   edicao — nunca divergirem sobre o que a ficha tem. Espera `dados` e `ufs`. #}
+<div class="linha-dupla">
+  <div>
+    <label class="rotulo" for="cpf">CPF</label>
+    <input type="text" id="cpf" name="cpf" maxlength="14" inputmode="numeric"
+           value="{{ dados.cpf }}" placeholder="000.000.000-00">
+  </div>
+  <div>
+    <label class="rotulo" for="indicacao">Quem indicou</label>
+    <input type="text" id="indicacao" name="indicacao" maxlength="60"
+           value="{{ dados.indicacao }}" placeholder="Nome de quem indicou">
+  </div>
+</div>
+
+<label class="rotulo" for="logradouro">Endereço</label>
+<input type="text" id="logradouro" name="logradouro" maxlength="120"
+       value="{{ dados.logradouro }}" placeholder="Rua, número e complemento">
+
+<div class="linha-dupla">
+  <div>
+    <label class="rotulo" for="bairro">Bairro</label>
+    <input type="text" id="bairro" name="bairro" maxlength="60"
+           value="{{ dados.bairro }}">
+  </div>
+  <div>
+    <label class="rotulo" for="cep">CEP</label>
+    <input type="text" id="cep" name="cep" maxlength="9" inputmode="numeric"
+           value="{{ dados.cep }}" placeholder="00000-000">
+  </div>
+</div>
+
+<div class="linha-dupla">
+  <div>
+    <label class="rotulo" for="cidade">Cidade</label>
+    <input type="text" id="cidade" name="cidade" maxlength="60"
+           value="{{ dados.cidade }}">
+  </div>
+  <div>
+    <label class="rotulo" for="uf">UF</label>
+    <select id="uf" name="uf">
+      <option value="">—</option>
+      {% for sigla in ufs %}
+        <option value="{{ sigla }}" {{ 'selected' if dados.uf == sigla }}>{{ sigla }}</option>
+      {% endfor %}
+    </select>
+  </div>
+</div>
+
+<label class="rotulo" for="observacao">Observação</label>
+<textarea id="observacao" name="observacao" rows="3"
+          placeholder="O que a recepção precisa lembrar deste paciente">{{ dados.observacao }}</textarea>

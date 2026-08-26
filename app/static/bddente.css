@@ -409,6 +409,7 @@ a.botao-secundario:hover { background: var(--roxo-cl); }
 }
 .cartao-form input[type="text"],
 .cartao-form input[type="date"],
+.cartao-form textarea,
 .cartao-form select {
   width: 100%;
   border: 1px solid var(--borda);
@@ -419,11 +420,41 @@ a.botao-secundario:hover { background: var(--roxo-cl); }
   color: var(--texto);
 }
 .cartao-form input:focus,
+.cartao-form textarea:focus,
 .cartao-form select:focus {
   outline: 0;
   border-color: var(--roxo);
   box-shadow: 0 0 0 3px var(--roxo-cl);
 }
+.cartao-form textarea {
+  font-family: inherit;
+  resize: vertical;
+  min-height: 62px;
+}
+
+/* a ficha alem do essencial: existe nas duas telas, recolhida no cadastro para o
+   caminho curto (nome -> odontograma) continuar curto */
+.ficha-extra {
+  margin-top: 18px;
+  border-top: 1px solid var(--borda);
+  padding-top: 12px;
+}
+.ficha-extra > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--roxo-esc);
+  list-style: none;
+}
+.ficha-extra > summary::-webkit-details-marker { display: none; }
+.ficha-extra > summary::before {
+  content: "+";
+  display: inline-block;
+  width: 14px;
+  font-weight: 700;
+}
+.ficha-extra[open] > summary::before { content: "−"; }
+
 .acoes-form {
   display: flex;
   align-items: center;

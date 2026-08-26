@@ -283,3 +283,81 @@ def test_marca_que_nao_e_de_telefone_continua_intocada(sessao, cliente, cenario)
     )
     sessao.refresh(outro)
     assert outro.revisar_motivo == ["cadastro_so_no_orcamento"]
+
+
+# --- a ficha completa ----------------------------------------------------------
+
+
+def test_a_tela_traz_os_campos_da_ficha_completa(cliente, cenario):
+    _, _, paciente, *_ = cenario
+    html = cliente.get(f"/pacientes/{paciente.id}/editar").text
+    for campo in ("cpf", "indicacao", "observacao", "logradouro", "bairro",
+                  "cidade", "uf", "cep"):
+        assert f'name="{campo}"' in html
+
+
+def test_salvar_a_ficha_completa_grava_tudo(sessao, cliente, cenario):
+    _, _, paciente, *_ = cenario
+    resposta = cliente.post(
+        f"/pacientes/{paciente.id}/editar",
+        data=formulario(
+            cenario,
+            cpf="529.982.247-25",
+            indicacao="Dra. Katia",
+            observacao="Prefere sabado.",
+            logradouro="Rua das Flores, 120",
+            bairro="Centro",
+            cidade="Porto Alegre",
+            uf="RS",
+            cep="90010000",
+        ),
+    )
+    assert resposta.status_code == 303
+    sessao.expire(paciente)
+    assert paciente.cpf == "529.982.247-25"
+    assert paciente.indicacao == "Dra. Katia"
+    assert paciente.observacao == "Prefere sabado."
+    (endereco,) = paciente.enderecos
+    assert (endereco.tipo, endereco.cidade, endereco.cep) == (
+        "RESIDENCIAL", "Porto Alegre", "90010-000",
+    )
+
+
+def test_a_tela_reabre_com_a_ficha_preenchida(sessao, cliente, cenario):
+    _, _, paciente, *_ = cenario
+    cliente.post(
+        f"/pacientes/{paciente.id}/editar",
+        data=formulario(cenario, cpf="529.982.247-25", cidade="Porto Alegre",
+                        observacao="Prefere sabado."),
+    )
+    html = cliente.get(f"/pacientes/{paciente.id}/editar").text
+    assert "529.982.247-25" in html
+    assert "Porto Alegre" in html
+    assert "Prefere sabado." in html
+
+
+def test_cpf_errado_grava_marcado_e_a_tela_avisa(sessao, cliente, cenario):
+    """A recepcao nao fica travada com a pessoa na frente: grava e marca."""
+    _, _, paciente, *_ = cenario
+    resposta = cliente.post(
+        f"/pacientes/{paciente.id}/editar",
+        data=formulario(cenario, cpf="529.982.247-26"),
+    )
+    assert resposta.status_code == 303
+    sessao.expire(paciente)
+    assert paciente.cpf == "529.982.247-26"
+    assert "cpf_suspeito" in paciente.revisar_motivo
+    assert "cpf suspeito" in cliente.get(f"/pacientes/{paciente.id}/editar").text
+
+
+def test_formulario_recusado_devolve_a_ficha_digitada(sessao, cliente, cenario):
+    """Nome vazio nao pode custar a observacao que a pessoa acabou de escrever."""
+    _, _, paciente, *_ = cenario
+    resposta = cliente.post(
+        f"/pacientes/{paciente.id}/editar",
+        data=formulario(cenario, nome="", observacao="Nao atende de manha.",
+                        cidade="Canoas"),
+    )
+    assert resposta.status_code == 200
+    assert "Nao atende de manha." in resposta.text
+    assert "Canoas" in resposta.text

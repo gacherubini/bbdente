@@ -11,6 +11,7 @@ from app.auth.sessao import usuario_atual
 # Convenio pertence ao catalogo: pedimos a lista pela service dele, nunca pelo model.
 from app.catalogo.service import convenios
 from app.pacientes.service import (
+    Endereco,
     Filtro,
     atualizar,
     buscar,
@@ -22,6 +23,36 @@ from app.pacientes.service import (
 from app.pacientes.telefone import formatar
 from app.shared.db import obter_sessao
 from app.templates import templates
+
+# Os campos alem do essencial. Ficam numa lista so para que a tela de cadastro e a
+# de edicao nunca divirjam sobre o que a ficha tem.
+CAMPOS_DA_FICHA = (
+    "cpf", "indicacao", "observacao",
+    "cep", "logradouro", "bairro", "cidade", "uf",
+)
+
+UFS = (
+    "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT",
+    "PA", "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP",
+    "TO",
+)
+
+
+def _ficha(**campos: str) -> dict[str, str]:
+    """O que veio nos campos da ficha, sempre com todas as chaves — o template le
+    todas, e chave faltando viraria string vazia silenciosa no Jinja."""
+    return {nome: (campos.get(nome) or "") for nome in CAMPOS_DA_FICHA}
+
+
+def _endereco_de(dados: dict[str, str]) -> Endereco:
+    return Endereco(
+        logradouro=dados["logradouro"],
+        bairro=dados["bairro"],
+        cidade=dados["cidade"],
+        uf=dados["uf"],
+        cep=dados["cep"],
+    )
+
 
 router = APIRouter()
 
@@ -73,6 +104,7 @@ def _formulario(
             "erro": erro,
             "parecidos": parecidos or [],
             "convenios": convenios(sessao, clinica_id=clinica_id),
+            "ufs": UFS,
         },
         status_code=200,
     )
@@ -87,6 +119,7 @@ def novo(
 ):
     """O nome ja vem preenchido com o termo que a busca nao achou."""
     dados = {"nome": nome, "telefone": "", "nascimento": "", "convenio_id": ""}
+    dados.update(_ficha())
     return _formulario(request, sessao, usuario.clinica_id, dados)
 
 
@@ -98,6 +131,14 @@ def cadastrar(
     nascimento: str = Form(""),
     convenio_id: str = Form(""),
     confirmar: str = Form(""),
+    cpf: str = Form(""),
+    indicacao: str = Form(""),
+    observacao: str = Form(""),
+    cep: str = Form(""),
+    logradouro: str = Form(""),
+    bairro: str = Form(""),
+    cidade: str = Form(""),
+    uf: str = Form(""),
     usuario: Usuario = Depends(usuario_atual),
     sessao: Session = Depends(obter_sessao),
 ):
@@ -106,6 +147,10 @@ def cadastrar(
         "telefone": telefone,
         "nascimento": nascimento,
         "convenio_id": convenio_id,
+        **_ficha(
+            cpf=cpf, indicacao=indicacao, observacao=observacao, cep=cep,
+            logradouro=logradouro, bairro=bairro, cidade=cidade, uf=uf,
+        ),
     }
     def formulario(**kw) -> HTMLResponse:
         return _formulario(request, sessao, usuario.clinica_id, dados, **kw)
@@ -134,6 +179,10 @@ def cadastrar(
             telefone=telefone.strip() or None,
             nascimento=nasceu,
             convenio_id=int(convenio_id) if convenio_id.strip() else None,
+            cpf=cpf,
+            indicacao=indicacao,
+            observacao=observacao,
+            endereco=_endereco_de(dados),
         )
     except ValueError as erro:
         sessao.rollback()
@@ -168,6 +217,7 @@ def _tela_de_edicao(
             "dados": dados,
             "erro": erro,
             "convenios": convenios(sessao, clinica_id=clinica_id),
+            "ufs": UFS,
         },
         status_code=200,
     )
@@ -181,6 +231,28 @@ def _dados_de(paciente) -> dict[str, str]:
         "telefone": " / ".join(formatar(t.numero) for t in paciente.telefones),
         "nascimento": paciente.nascimento.isoformat() if paciente.nascimento else "",
         "convenio_id": str(paciente.convenio_id or ""),
+        # A tela edita so o residencial; o comercial migrado continua no banco.
+        **_ficha(
+            cpf=paciente.cpf,
+            indicacao=paciente.indicacao,
+            observacao=paciente.observacao,
+            **_residencial(paciente),
+        ),
+    }
+
+
+def _residencial(paciente) -> dict[str, str]:
+    casa = next(
+        (e for e in paciente.enderecos if e.tipo == "RESIDENCIAL"), None
+    )
+    if casa is None:
+        return {}
+    return {
+        "cep": casa.cep or "",
+        "logradouro": casa.logradouro or "",
+        "bairro": casa.bairro or "",
+        "cidade": casa.cidade or "",
+        "uf": casa.uf or "",
     }
 
 
@@ -205,6 +277,14 @@ def salvar_edicao(
     telefone: str = Form(""),
     nascimento: str = Form(""),
     convenio_id: str = Form(""),
+    cpf: str = Form(""),
+    indicacao: str = Form(""),
+    observacao: str = Form(""),
+    cep: str = Form(""),
+    logradouro: str = Form(""),
+    bairro: str = Form(""),
+    cidade: str = Form(""),
+    uf: str = Form(""),
     usuario: Usuario = Depends(usuario_atual),
     sessao: Session = Depends(obter_sessao),
 ):
@@ -214,6 +294,10 @@ def salvar_edicao(
         "telefone": telefone,
         "nascimento": nascimento,
         "convenio_id": convenio_id,
+        **_ficha(
+            cpf=cpf, indicacao=indicacao, observacao=observacao, cep=cep,
+            logradouro=logradouro, bairro=bairro, cidade=cidade, uf=uf,
+        ),
     }
 
     def formulario(erro: str) -> HTMLResponse:
@@ -238,6 +322,10 @@ def salvar_edicao(
             telefone=telefone,
             nascimento=nasceu,
             convenio_id=int(convenio_id) if convenio_id.strip() else None,
+            cpf=cpf,
+            indicacao=indicacao,
+            observacao=observacao,
+            endereco=_endereco_de(dados),
         )
     except ValueError as erro:
         return formulario(str(erro))

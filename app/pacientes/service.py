@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.auth.auditoria import registrar
 from app.catalogo.service import nomes_de_convenio
-from app.pacientes.models import Paciente, PacienteTelefone
+from app.pacientes import cpf as documento
+from app.pacientes.models import Paciente, PacienteEndereco, PacienteTelefone
 from app.pacientes.telefone import formatar, parecer_incompleto, parecer_longo, separar
 
 # "Ativo" = veio nos ultimos 4 anos. Sao 494 dos 5.561 no banco real.
@@ -272,6 +273,95 @@ def semelhantes(
 # tirar. Marca de outra origem (`cadastro_so_no_orcamento`, `paciente_perdido`)
 # continua intocada: quem nao sabe verificar nao apaga.
 MARCAS_DE_TELEFONE = ("telefone_incompleto", "telefone_suspeito")
+MARCAS_DE_CPF = ("cpf_suspeito",)
+MARCAS_CONFERIVEIS = MARCAS_DE_TELEFONE + MARCAS_DE_CPF
+
+TIPO_RESIDENCIAL = "RESIDENCIAL"
+TAMANHO_DA_INDICACAO = 60
+TAMANHO_DO_CEP = 9
+
+
+@dataclass
+class Endereco:
+    """O endereco residencial como a tela o entrega. `None` no lugar dele significa
+    'esta chamada nao fala de endereco' — diferente de um Endereco vazio, que
+    significa 'a recepcao limpou os campos'."""
+
+    logradouro: str | None = None
+    bairro: str | None = None
+    cidade: str | None = None
+    uf: str | None = None
+    cep: str | None = None
+
+    def vazio(self) -> bool:
+        return not any(
+            (self.logradouro, self.bairro, self.cidade, self.uf, self.cep)
+        )
+
+
+def _limpo(texto: str | None, tamanho: int | None = None) -> str | None:
+    """Texto de formulario -> o que vai para a coluna. Vazio vira NULL.
+
+    O corte por tamanho e rede de seguranca do lado do servidor: o `maxlength` do
+    campo ja segura o que a recepcao digita, e sem ele um POST fora da tela
+    derrubaria a gravacao no limite da coluna.
+    """
+    valor = (texto or "").strip()
+    if not valor:
+        return None
+    return valor[:tamanho] if tamanho else valor
+
+
+def _cep(bruto: str | None) -> str | None:
+    """'90010000' -> '90010-000'. O que nao tem 8 digitos fica como veio."""
+    valor = _limpo(bruto, TAMANHO_DO_CEP)
+    if valor is None:
+        return None
+    digitos = "".join(c for c in valor if c.isdigit())
+    if len(digitos) != 8:
+        return valor
+    return f"{digitos[:5]}-{digitos[5:]}"
+
+
+def _gravar_endereco_residencial(
+    sessao: Session, *, paciente: Paciente, endereco: Endereco
+) -> str | None:
+    """Corrige a linha RESIDENCIAL do paciente, ou cria a primeira.
+
+    Nunca cria uma segunda: mudar de rua e o mesmo endereco corrigido, e duas
+    linhas RESIDENCIAL fariam a ficha mostrar as duas. O endereco COMERCIAL que
+    veio do Dentalis nao e tocado — a tela nao o edita.
+    """
+    atual = next(
+        (e for e in paciente.enderecos if e.tipo == TIPO_RESIDENCIAL), None
+    )
+    if atual is None:
+        if endereco.vazio():
+            return None  # ficha sem endereco nao vira linha em branco
+        atual = PacienteEndereco(paciente_id=paciente.id, tipo=TIPO_RESIDENCIAL)
+        sessao.add(atual)
+
+    atual.logradouro = _limpo(endereco.logradouro, 120)
+    atual.bairro = _limpo(endereco.bairro, 60)
+    atual.cidade = _limpo(endereco.cidade, 60)
+    uf = _limpo(endereco.uf, 2)
+    atual.uf = uf.upper() if uf else None
+    atual.cep = _cep(endereco.cep)
+    sessao.flush()
+    sessao.expire(paciente, ["enderecos"])
+    return atual.logradouro
+
+
+def _logradouro_residencial(paciente: Paciente) -> str | None:
+    """O que a auditoria guarda do endereco: a rua identifica a mudanca."""
+    return next(
+        (
+            e.logradouro
+            for e in paciente.enderecos
+            if e.tipo == TIPO_RESIDENCIAL
+        ),
+        None,
+    )
 
 
 def _gravar_telefones(
@@ -333,6 +423,10 @@ def criar(
     telefone: str | None = None,
     nascimento: date | None = None,
     convenio_id: int | None = None,
+    cpf: str | None = None,
+    indicacao: str | None = None,
+    observacao: str | None = None,
+    endereco: Endereco | None = None,
 ) -> Paciente:
     """Cadastra um paciente novo. Faz flush (o chamador precisa do id), nunca commit —
     quem chama decide gravar.
@@ -346,6 +440,7 @@ def criar(
     if not nome:
         raise ValueError("o nome do paciente e obrigatorio")
 
+    documento_limpo = documento.formatar(cpf)
     paciente = Paciente(
         clinica_id=clinica_id,
         # Paciente novo nao tem codigo do Dentalis: codigo_legado so existe no
@@ -354,6 +449,9 @@ def criar(
         nome=nome,
         nascimento=nascimento,
         convenio_id=convenio_id,
+        cpf=_limpo(documento_limpo, 14),
+        indicacao=_limpo(indicacao, TAMANHO_DA_INDICACAO),
+        observacao=_limpo(observacao),
         cadastrado_em=date.today(),
         revisar_motivo=[],
     )
@@ -362,8 +460,16 @@ def criar(
 
     bruto = (telefone or "").strip()
     motivos = _gravar_telefones(sessao, paciente=paciente, bruto=bruto)
+    if documento.parecer_invalido(cpf):
+        motivos.append("cpf_suspeito")
     if motivos:
         paciente.revisar_motivo = motivos
+
+    rua = None
+    if endereco is not None:
+        rua = _gravar_endereco_residencial(
+            sessao, paciente=paciente, endereco=endereco
+        )
     sessao.flush()
 
     registrar(
@@ -378,6 +484,10 @@ def criar(
             "nascimento": nascimento.isoformat() if nascimento else None,
             "convenio_id": convenio_id,
             "telefone": bruto or None,
+            "cpf": paciente.cpf,
+            "indicacao": paciente.indicacao,
+            "observacao": paciente.observacao,
+            "endereco": rua,
         },
     )
     return paciente
@@ -393,6 +503,10 @@ def atualizar(
     telefone: str | None = None,
     nascimento: date | None = None,
     convenio_id: int | None = None,
+    cpf: str | None = None,
+    indicacao: str | None = None,
+    observacao: str | None = None,
+    endereco: Endereco | None = None,
 ) -> Paciente:
     """Corrige o cadastro. Faz flush, nunca commit — quem chama decide gravar.
 
@@ -416,16 +530,33 @@ def atualizar(
         "nascimento": paciente.nascimento.isoformat() if paciente.nascimento else None,
         "convenio_id": paciente.convenio_id,
         "telefone": ", ".join(t.numero for t in paciente.telefones) or None,
+        "cpf": paciente.cpf,
+        "indicacao": paciente.indicacao,
+        "observacao": paciente.observacao,
+        "endereco": _logradouro_residencial(paciente),
     }
 
     paciente.nome = nome
     paciente.nascimento = nascimento
     paciente.convenio_id = convenio_id
+    paciente.cpf = _limpo(documento.formatar(cpf), 14)
+    paciente.indicacao = _limpo(indicacao, TAMANHO_DA_INDICACAO)
+    paciente.observacao = _limpo(observacao)
 
     bruto = (telefone or "").strip()
     marcas = _gravar_telefones(sessao, paciente=paciente, bruto=bruto)
-    outras = [m for m in paciente.revisar_motivo if m not in MARCAS_DE_TELEFONE]
+    if documento.parecer_invalido(cpf):
+        marcas.append("cpf_suspeito")
+    outras = [m for m in paciente.revisar_motivo if m not in MARCAS_CONFERIVEIS]
     paciente.revisar_motivo = outras + marcas
+
+    # `endereco=None` e uma chamada que nao fala de endereco: nao mexe no que esta
+    # gravado. Um Endereco vazio, sim, e a recepcao tendo limpado os campos.
+    rua = _logradouro_residencial(paciente)
+    if endereco is not None:
+        rua = _gravar_endereco_residencial(
+            sessao, paciente=paciente, endereco=endereco
+        )
     sessao.flush()
 
     registrar(
@@ -441,6 +572,10 @@ def atualizar(
             "nascimento": nascimento.isoformat() if nascimento else None,
             "convenio_id": convenio_id,
             "telefone": bruto or None,
+            "cpf": paciente.cpf,
+            "indicacao": paciente.indicacao,
+            "observacao": paciente.observacao,
+            "endereco": rua,
         },
     )
     return paciente

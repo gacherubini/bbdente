@@ -3,8 +3,8 @@
 {% block conteudo %}
 <h1>Novo paciente</h1>
 <p class="legenda-topo">
-  Só o essencial para abrir o odontograma. Endereço, CPF e o resto da ficha
-  podem ser preenchidos depois.
+  Só o essencial para abrir o odontograma. O resto da ficha pode ser preenchido
+  agora, se a pessoa estiver com os dados na mão, ou depois em Editar.
 </p>
 
 <form class="cartao-form" method="post" action="/pacientes/novo">
@@ -61,6 +61,16 @@
       <option value="{{ id }}" {{ 'selected' if dados.convenio_id == id|string }}>{{ nome }}</option>
     {% endfor %}
   </select>
+
+  {# Fechado por padrao: quem so quer abrir o odontograma nao passa por aqui.
+     Abre sozinho quando ja tem algo digitado dentro — senao o formulario que
+     volta com aviso esconderia o que a pessoa acabou de escrever. #}
+  <details class="ficha-extra" {{ 'open' if dados.cpf or dados.indicacao or dados.observacao
+                                          or dados.logradouro or dados.bairro or dados.cidade
+                                          or dados.uf or dados.cep }}>
+    <summary>Ficha completa — CPF, endereço, quem indicou, observação</summary>
+    {% include "_campos_da_ficha.html" %}
+  </details>
 
   {% if parecidos %}<input type="hidden" name="confirmar" value="1">{% endif %}
 

@@ -149,7 +149,12 @@ Nenhum destes é esquecimento — são escolhas registradas para não virarem su
 - A camada azul (`condicao`) é **somente leitura**: os 9.629 registros históricos são
   desenhados, mas não há tela para registrar condição nova. Isso espera a tradução dos
   309 códigos de ícone do Dentalis.
-- Não há tela de edição de cadastro de paciente. O MVP lê e busca.
+- **O cadastro edita a ficha, não o histórico.** Nome, telefone, nascimento,
+  convênio, CPF, endereço residencial, quem indicou e observação são editáveis;
+  `codigo_legado` não é (é a chave que liga o cadastro aos 30 anos migrados), e o
+  endereço comercial que veio do Dentalis é lido mas não editado.
+- **CPF com dígito errado entra marcado, nunca recusado** (`cpf_suspeito`) — a
+  mesma régua do telefone: quem cadastra está com a pessoa na frente.
 - **O atendimento da boca em branco vive só no navegador** até ser concluído. O
   menu `Odontograma` abre um odontograma sem dono; os tratamentos marcados ficam
   em `localStorage` e no `POST /api/atendimento` viram lançamentos de uma vez só.

@@ -127,3 +127,79 @@ def test_a_lista_tem_o_botao_de_novo_paciente_levando_o_termo_digitado(cliente):
     html = c.get("/pacientes?q=Wanderleia&filtro=todos").text
     assert 'href="/pacientes/novo?nome=Wanderleia"' in html
     assert "Novo paciente" in html
+
+
+# --- a ficha completa ----------------------------------------------------------
+
+
+def test_a_tela_de_cadastro_traz_a_ficha_completa_recolhida(cliente):
+    """O caminho curto continua curto: os campos existem, mas dentro de um bloco
+    fechado — quem so quer abrir o odontograma nao passa por eles."""
+    c, _ = cliente
+    html = c.get("/pacientes/novo").text
+    assert "<details" in html
+    for campo in ("cpf", "indicacao", "observacao", "logradouro", "cidade", "cep"):
+        assert f'name="{campo}"' in html
+
+
+def test_cadastrar_com_a_ficha_completa_grava_tudo(sessao, cliente):
+    c, _ = cliente
+    resposta = c.post(
+        "/pacientes/novo",
+        data={
+            "nome": "Nadia Prado",
+            "telefone": "51 99999-1234",
+            "cpf": "529.982.247-25",
+            "indicacao": "Indicada pela irma",
+            "observacao": "Usa aparelho.",
+            "logradouro": "Rua Nova, 45",
+            "bairro": "Cristal",
+            "cidade": "Porto Alegre",
+            "uf": "RS",
+            "cep": "90810-000",
+        },
+    )
+    assert resposta.status_code == 303
+    novo = sessao.scalars(
+        select(Paciente).where(Paciente.nome == "Nadia Prado")
+    ).one()
+    assert novo.cpf == "529.982.247-25"
+    assert novo.indicacao == "Indicada pela irma"
+    assert novo.observacao == "Usa aparelho."
+    (endereco,) = novo.enderecos
+    assert (endereco.tipo, endereco.logradouro, endereco.uf) == (
+        "RESIDENCIAL", "Rua Nova, 45", "RS",
+    )
+
+
+def test_cadastro_sem_ficha_nao_cria_endereco_em_branco(sessao, cliente):
+    c, _ = cliente
+    c.post("/pacientes/novo", data={"nome": "Otavio Lemos"})
+    novo = sessao.scalars(
+        select(Paciente).where(Paciente.nome == "Otavio Lemos")
+    ).one()
+    assert novo.enderecos == []
+    assert novo.cpf is None
+
+
+def test_cpf_errado_no_cadastro_grava_marcado(sessao, cliente):
+    c, _ = cliente
+    c.post("/pacientes/novo", data={"nome": "Paula Vieira", "cpf": "529.982.247-26"})
+    novo = sessao.scalars(
+        select(Paciente).where(Paciente.nome == "Paula Vieira")
+    ).one()
+    assert novo.cpf == "529.982.247-26"
+    assert "cpf_suspeito" in novo.revisar_motivo
+
+
+def test_o_aviso_de_duplicata_nao_perde_a_ficha_digitada(cliente):
+    """O formulario volta para confirmar: o que foi digitado tem de voltar junto."""
+    c, joana = cliente
+    resposta = c.post(
+        "/pacientes/novo",
+        data={"nome": "Joana Marques", "observacao": "Amiga da Joana",
+              "cidade": "Viamao"},
+    )
+    assert resposta.status_code == 200
+    assert "Amiga da Joana" in resposta.text
+    assert "Viamao" in resposta.text
