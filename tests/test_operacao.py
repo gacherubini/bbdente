@@ -43,3 +43,13 @@ def test_o_env_example_nao_tem_segredo_de_verdade():
     assert "SECRET_KEY=" in texto
     linha = next(x for x in texto.splitlines() if x.startswith("SECRET_KEY="))
     assert len(linha.split("=", 1)[1]) < 80  # e uma instrucao, nao uma chave
+
+
+def test_a_imagem_leva_os_scripts_que_o_manual_manda_rodar_dentro_dela():
+    """O OPERACAO.md manda criar o primeiro usuario com
+    `fly ssh console -C "python -m scripts.criar_usuario ..."`. Sem `scripts/`
+    dentro da imagem isso falha com ModuleNotFoundError e ninguem consegue o
+    primeiro login em producao — nao ha cadastro publico, de proposito.
+    """
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+    assert "COPY scripts" in dockerfile

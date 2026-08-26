@@ -6,6 +6,9 @@ ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 COPY pyproject.toml ./
 COPY app ./app
 COPY migracao ./migracao
+# O OPERACAO.md cria o primeiro usuario por `fly ssh console -C python -m
+# scripts.criar_usuario`: sem isto aqui, ninguem entra no sistema em producao.
+COPY scripts ./scripts
 COPY alembic ./alembic
 COPY alembic.ini ./
 RUN pip install -e .
