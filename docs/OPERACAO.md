@@ -198,12 +198,19 @@ motivo de cada escolha comentado ao lado. São cinco comandos, uma vez na vida:
         AUTHENTICATION_API_KEY="$(python -c 'import secrets;print(secrets.token_hex(32))')"
 
     # 4. sobe
-    fly deploy -c infra/evolution/fly.toml
+    fly deploy -c infra/evolution/fly.toml --ha=false
 
-    # 5. confere que ela responde — de dentro do BDDente, que é o único lugar
+    # 5. TIRA O ENDEREÇO PÚBLICO. O `fly deploy` aloca IP sozinho, mesmo sem
+    #    serviço publicado — e endereço público numa API sem login é o buraco
+    #    que este arquivo inteiro existe para não abrir. Confira depois de todo
+    #    deploy dela; a lista tem de sair vazia.
+    fly ips list --app bddente-whatsapp
+    fly ips release <cada endereço listado> --app bddente-whatsapp
+
+    # 6. confere que ela responde — de dentro do BDDente, que é o único lugar
     #    de onde ela é alcançável
     fly ssh console --app bddente -C \
-        "curl -s -o /dev/null -w '%{http_code}' http://bddente-whatsapp.internal:8080"
+        "python -c \"import httpx; print(httpx.get('http://bddente-whatsapp.internal:8080', timeout=10).status_code)\""
 
 **Ela não pode ter endereço público.** A Evolution não tem login — a única coisa
 entre a internet e o WhatsApp pessoal da mãe do dono do projeto é aquela chave de
@@ -221,7 +228,12 @@ guardá-la criaria uma segunda base de dado pessoal, fora do BDDente, fora da au
 e fora do backup que a clínica sabe que tem. O que precisa ficar registrado já fica —
 o texto que saiu está em `lembrete.texto`, sob a allowlist do `agenda/mensagem.py`.
 
-**A versão da imagem está presa** (`atendai/evolution-api:v2.2.3`). `latest` seria um
+**A imagem é a `evoapicloud`, e não a `atendai`.** O projeto mudou de organização no
+Docker Hub, e a antiga foi despublicada: o `docker pull` responde *"repository does not
+exist"* e o Fly falha com um 500 na criação do release, que não diz uma palavra sobre
+imagem. Se um dia o deploy dela quebrar assim, é o primeiro lugar para olhar.
+
+**A versão da imagem está presa** (`evoapicloud/evolution-api:v2.3.7`). `latest` seria um
 upgrade de major sem ninguém olhando, numa peça que guarda a sessão: uma quebra de
 schema derruba a conexão e obriga a ler o QR de novo, no dia em que ninguém estava
 mexendo. Subir de versão é editar aquela linha e rodar o `fly deploy` de novo, com

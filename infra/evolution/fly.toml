@@ -20,7 +20,11 @@ primary_region = "iad"  # junto do BDDente e do Postgres: a conversa e pela rede
   # As rotas que o `app/agenda/whatsapp/evolution.py` chama sao as da v2
   # (`/message/sendText` com `{number, text}`) — a v1 tem outro formato, entao
   # descer de major quebra o envio.
-  image = "atendai/evolution-api:v2.2.3"
+  # `evoapicloud`, nao `atendai`: o projeto mudou de organizacao no Docker Hub e a
+  # antiga foi despublicada. O sintoma de escrever a antiga e um 500 do Fly na
+  # criacao do release, que nao fala em imagem nenhuma — dois deploys perdidos
+  # ate alguem tentar o `docker pull` a mao e ler "repository does not exist".
+  image = "evoapicloud/evolution-api:v2.3.7"
 
 [env]
   SERVER_URL = "http://bddente-whatsapp.internal:8080"
@@ -75,21 +79,25 @@ primary_region = "iad"  # junto do BDDente e do Postgres: a conversa e pela rede
   LOG_BAILEYS = "error"
   TELEMETRY = "false"
 
-# Sem `[[services.ports]]` — e sem `[http_service]` — a Evolution NAO GANHA
-# ENDERECO PUBLICO. Ela nao tem login: a unica coisa entre a internet e o
-# WhatsApp pessoal dela seria uma chave de cabecalho. Quem fala com ela e o
-# BDDente, pela rede privada `.internal`, que nao passa pela internet.
-[[services]]
-  internal_port = 8080
-  protocol = "tcp"
-  # A maquina nao dorme: Baileys mantem um socket vivo com o WhatsApp, e maquina
-  # que suspende e sessao que cai — QR de novo a cada cochilo. Custo somado ao do
-  # BDDente acordado: ~US$ 3 a 5/mes, e ele e da escolha por Baileys.
-  auto_stop_machines = "off"
-  auto_start_machines = false
-  min_machines_running = 1
-
-  [[services.tcp_checks]]
+# NAO HA `[http_service]` NEM `[[services]]`, e e a decisao de seguranca deste
+# arquivo: servico publicado e endereco publico, e a Evolution nao tem login — a
+# unica coisa entre a internet e o WhatsApp pessoal dela seria uma chave de
+# cabecalho. Sem servico, o Fly nao aloca IP e o proxy dele nunca ve esta app.
+#
+# Quem fala com ela e o BDDente, por `http://bddente-whatsapp.internal:8080`: a
+# rede privada 6PN chega direto na maquina, sem passar pelo proxy e sem passar
+# pela internet. (Um `[[services]]` sem `[[services.ports]]`, que seria a forma
+# obvia de escrever "privado", o Fly recusa desde 2024 — e foi o que derrubou o
+# primeiro deploy com erro 500.)
+#
+# Sem proxy tambem nao existe autostop: nao ha trafego para o Fly contar, entao
+# a maquina simplesmente fica de pe — que e o que Baileys precisa. Socket vivo:
+# maquina que suspende e sessao que cai, e QR de novo a cada cochilo. Custo:
+# ~US$ 3 a 5/mes, da escolha por Baileys.
+[checks]
+  [checks.porta]
+    type = "tcp"
+    port = 8080
     interval = "30s"
     timeout = "5s"
     grace_period = "30s"
