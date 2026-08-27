@@ -1,7 +1,13 @@
 import pytest
 
-from app.auth.senha import conferir, gerar_hash
+from app.auth.models import Usuario
+from app.auth.senha import conferir, gerar_hash, impressao
 from app.auth.sessao import assinar, ler
+
+
+def usuario_solto(identificador: int = 42, senha: str = "seja-la-qual-for") -> Usuario:
+    """Um Usuario de memoria, sem banco: estes testes sao sobre o token."""
+    return Usuario(id=identificador, senha_hash=gerar_hash(senha))
 
 
 def test_hash_nao_guarda_a_senha_em_claro():
@@ -26,7 +32,8 @@ def test_hash_corrompido_nao_derruba_o_login():
 
 
 def test_token_de_sessao_faz_ida_e_volta():
-    assert ler(assinar(42)) == 42
+    usuario = usuario_solto()
+    assert ler(assinar(usuario)) == (42, impressao(usuario.senha_hash))
 
 
 @pytest.mark.parametrize("token", ["", "lixo", "eyJ1IjoxfQ.assinatura-falsa"])
@@ -37,6 +44,6 @@ def test_token_adulterado_e_recusado(token):
 def test_token_expirado_e_recusado(monkeypatch):
     import app.auth.sessao as modulo
 
-    token = assinar(42)
+    token = assinar(usuario_solto())
     monkeypatch.setattr(modulo, "MAX_IDADE_SEGUNDOS", -1)
     assert ler(token) is None

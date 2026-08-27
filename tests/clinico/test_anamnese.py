@@ -121,7 +121,7 @@ def test_a_tela_mostra_as_perguntas_e_grava_o_formulario(sessao, base):
     app = criar_app()
     app.dependency_overrides[obter_sessao] = lambda: sessao
     with TestClient(app, follow_redirects=False) as c:
-        c.cookies.set(NOME_COOKIE, assinar(usuario.id))
+        c.cookies.set(NOME_COOKIE, assinar(usuario))
         html = c.get(f"/anamnese/{paciente.id}").text
         assert "Pergunta 1" in html
         assert "Amanda" in html

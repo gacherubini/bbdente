@@ -182,7 +182,7 @@ def test_a_tela_agrupa_por_categoria(sessao, base):
     app = criar_app()
     app.dependency_overrides[obter_sessao] = lambda: sessao
     with TestClient(app, follow_redirects=False) as c:
-        c.cookies.set(NOME_COOKIE, assinar(usuario.id))
+        c.cookies.set(NOME_COOKIE, assinar(usuario))
         html = c.get("/tratamentos").text
     assert "Dentistica" in html
     assert "Clareamento" in html

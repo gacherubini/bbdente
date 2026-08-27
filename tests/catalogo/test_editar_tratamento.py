@@ -55,7 +55,7 @@ def cliente(sessao, cenario):
     app = criar_app()
     app.dependency_overrides[obter_sessao] = lambda: sessao
     with TestClient(app, follow_redirects=False) as c:
-        c.cookies.set(NOME_COOKIE, assinar(usuario.id))
+        c.cookies.set(NOME_COOKIE, assinar(usuario))
         yield c
 
 

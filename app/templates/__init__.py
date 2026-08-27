@@ -1,13 +1,31 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
+from fastapi import Request
 from fastapi.templating import Jinja2Templates
 
 from app.shared.formato import moeda
 
 ESTATICOS = Path(__file__).parent.parent / "static"
 
-templates = Jinja2Templates(directory=str(Path(__file__).parent))
+
+def quem_esta_logado(request: Request) -> dict[str, Any]:
+    """Poe `usuario` no contexto de toda tela, sem que rota nenhuma repasse.
+
+    O `usuario_atual` guarda o usuario em `request.state` ao conferir o cookie.
+    Fazer por aqui e proposital: o rodape da lateral aparece em todas as telas, e
+    se cada rota tivesse de repassar o usuario, uma delas ia esquecer — e a tela
+    ficaria sem dizer em nome de quem se esta gravando o prontuario.
+
+    `None` na tela de login, que nao tem sessao e nao estende o layout.
+    """
+    return {"usuario": getattr(request.state, "usuario", None)}
+
+
+templates = Jinja2Templates(
+    directory=str(Path(__file__).parent), context_processors=[quem_esta_logado]
+)
 templates.env.filters["moeda"] = moeda
 
 

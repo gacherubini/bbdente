@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block largura %}larga{% endblock %}
 {% block titulo %}
   {%- if rascunho %}Atendimento novo — BDDente
   {%- else %}{{ estado.paciente.nome }} — BDDente{% endif %}
@@ -24,80 +25,89 @@
 {% endif %}
 
 <div class="odonto-area">
-  <div class="odonto-desenho">
-    <div id="odontograma"></div>
-    <div class="legenda-cores">
-      <span><i style="background:var(--planejado)"></i>Planejado</span>
-      <span><i style="background:var(--realizado)"></i>Realizado</span>
-      <span><i style="background:var(--existente)"></i>Já existente</span>
-      <span><i style="background:#fff;border:1px solid #94A3B8"></i>Sem nada</span>
+  {# Coluna da esquerda: o desenho e, embaixo dele, o que ja foi marcado. O vao
+     vazio que sobrava aqui era a metade da tela. #}
+  <div class="odonto-coluna">
+    <div class="odonto-desenho">
+      <div id="odontograma"></div>
+      <div class="legenda-cores">
+        <span><i style="background:var(--planejado)"></i>Planejado</span>
+        <span><i style="background:var(--realizado)"></i>Realizado</span>
+        <span><i style="background:var(--existente)"></i>Já existente</span>
+        <span><i style="background:#fff;border:1px solid #94A3B8"></i>Sem nada</span>
+      </div>
     </div>
+
+    {# O mesmo vao que a lista do rascunho preenche na boca em branco: aqui
+       quem preenche e o historico. Titulo e tabela andam juntos e nesta ordem
+       — o historico.js acha o historico por `.titulo-historico + table`. #}
+    {% if rascunho %}
+      {% include "_rascunho_lista.html" %}
+    {% else %}
+      <h2 class="titulo-historico">Histórico de atendimentos</h2>
+      <table>
+        <thead>
+          <tr><th>Data</th><th>Dente</th><th>Tratamento</th><th>Situação</th>
+              <th style="text-align:right">Valor</th><th></th></tr>
+        </thead>
+        <tbody>
+        {# Uma tabela so, com uma linha de cabecalho por dia — nao uma tabela por dia.
+           O historico.js acha o historico por `.titulo-historico + table` e monta o
+           formulario de edicao com 6 colunas; quebrar em varias tabelas deixaria a
+           edicao funcionando so no dia mais recente. #}
+        {% for grupo in atendimentos %}
+          <tr class="grupo-dia">
+            <td colspan="6">
+              <span class="grupo-data">
+                {{ grupo.data.strftime('%d/%m/%Y') if grupo.data else 'Sem data' }}
+              </span>
+              <span class="grupo-resumo">
+                {{ grupo.quantos }} tratamento{{ '' if grupo.quantos == 1 else 's' }}
+                · R$ {{ grupo.total | moeda }}
+              </span>
+            </td>
+          </tr>
+          {% for item in grupo.itens %}
+          {# Os data-* sao o que o JavaScript le para montar a edicao da linha sem
+             precisar de uma segunda ida ao servidor. #}
+          <tr data-lancamento="{{ item.lancamento_id }}"
+              data-status="{{ item.status }}"
+              data-valor="{{ item.valor }}"
+              data-data="{{ item.data.isoformat() if item.data else '' }}"
+              data-observacao="{{ item.observacao or '' }}">
+            {# A data fica na linha mesmo repetindo o cabecalho do grupo: quando a
+               dentista corrige a data na linha, o historico.js reescreve esta celula e
+               o cabecalho do grupo continua o antigo ate recarregar. Escondendo a
+               celula, a correcao ficaria invisivel. #}
+            <td class="col-data">{{ item.data.strftime('%d/%m/%Y') if item.data else '—' }}</td>
+            <td>{{ item.dente or 'boca toda' }}</td>
+            <td>
+              {{ item.procedimento }}
+              {% if item.observacao %}
+                <span class="observacao">{{ item.observacao }}</span>
+              {% endif %}
+            </td>
+            <td class="col-situacao">
+              {{ 'Realizado' if item.status == 'REALIZADO' else 'Planejado' }}
+            </td>
+            <td style="text-align:right" class="numero col-valor">
+              R$ {{ item.valor | moeda }}
+            </td>
+            <td style="text-align:right">
+              <button type="button" class="ligacao editar-lancamento">editar</button>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="6" style="color:var(--texto-fraco)">Nenhum lançamento ainda.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
   </div>
 
   {% include "_painel_lancamento.html" %}
 </div>
-
-{% if not rascunho %}
-<h2 class="titulo-historico">Histórico de atendimentos</h2>
-<table>
-  <thead>
-    <tr><th>Data</th><th>Dente</th><th>Tratamento</th><th>Situação</th>
-        <th style="text-align:right">Valor</th><th></th></tr>
-  </thead>
-  <tbody>
-  {# Uma tabela so, com uma linha de cabecalho por dia — nao uma tabela por dia.
-     O historico.js acha o historico por `.titulo-historico + table` e monta o
-     formulario de edicao com 6 colunas; quebrar em varias tabelas deixaria a
-     edicao funcionando so no dia mais recente. #}
-  {% for grupo in atendimentos %}
-    <tr class="grupo-dia">
-      <td colspan="6">
-        <span class="grupo-data">
-          {{ grupo.data.strftime('%d/%m/%Y') if grupo.data else 'Sem data' }}
-        </span>
-        <span class="grupo-resumo">
-          {{ grupo.quantos }} tratamento{{ '' if grupo.quantos == 1 else 's' }}
-          · R$ {{ grupo.total | moeda }}
-        </span>
-      </td>
-    </tr>
-    {% for item in grupo.itens %}
-    {# Os data-* sao o que o JavaScript le para montar a edicao da linha sem
-       precisar de uma segunda ida ao servidor. #}
-    <tr data-lancamento="{{ item.lancamento_id }}"
-        data-status="{{ item.status }}"
-        data-valor="{{ item.valor }}"
-        data-data="{{ item.data.isoformat() if item.data else '' }}"
-        data-observacao="{{ item.observacao or '' }}">
-      {# A data fica na linha mesmo repetindo o cabecalho do grupo: quando a
-         dentista corrige a data na linha, o historico.js reescreve esta celula e
-         o cabecalho do grupo continua o antigo ate recarregar. Escondendo a
-         celula, a correcao ficaria invisivel. #}
-      <td class="col-data">{{ item.data.strftime('%d/%m/%Y') if item.data else '—' }}</td>
-      <td>{{ item.dente or 'boca toda' }}</td>
-      <td>
-        {{ item.procedimento }}
-        {% if item.observacao %}
-          <span class="observacao">{{ item.observacao }}</span>
-        {% endif %}
-      </td>
-      <td class="col-situacao">
-        {{ 'Realizado' if item.status == 'REALIZADO' else 'Planejado' }}
-      </td>
-      <td style="text-align:right" class="numero col-valor">
-        R$ {{ item.valor | moeda }}
-      </td>
-      <td style="text-align:right">
-        <button type="button" class="ligacao editar-lancamento">editar</button>
-      </td>
-    </tr>
-    {% endfor %}
-  {% else %}
-    <tr><td colspan="6" style="color:var(--texto-fraco)">Nenhum lançamento ainda.</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
-{% endif %}
 
 {% if rascunho %}{% include "_concluir_atendimento.html" %}{% endif %}
 {% endblock %}

@@ -11,11 +11,9 @@ import sys
 from sqlalchemy import select
 
 from app.auth.models import Clinica, Usuario
-from app.auth.senha import gerar_hash
+from app.auth.senha import TAMANHO_MINIMO_SENHA, gerar_hash
 from app.auth.service import criar_usuario
 from app.shared.db import Sessao
-
-TAMANHO_MINIMO_SENHA = 12
 
 
 def main() -> int:

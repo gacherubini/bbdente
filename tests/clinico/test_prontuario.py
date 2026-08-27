@@ -99,7 +99,7 @@ def test_a_rota_devolve_o_pdf_como_anexo(sessao, base):
     app = criar_app()
     app.dependency_overrides[obter_sessao] = lambda: sessao
     with TestClient(app, follow_redirects=False) as c:
-        c.cookies.set(NOME_COOKIE, assinar(usuario.id))
+        c.cookies.set(NOME_COOKIE, assinar(usuario))
         resposta = c.get(f"/prontuario/{paciente.id}.pdf")
     assert resposta.status_code == 200
     assert resposta.headers["content-type"] == "application/pdf"

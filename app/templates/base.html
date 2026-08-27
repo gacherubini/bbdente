@@ -17,12 +17,28 @@
         <li><a href="/tratamentos" class="{{ 'ativo' if aba == 'tratamentos' }}">Tratamentos</a></li>
         <li><a href="/financeiro" class="{{ 'ativo' if aba == 'financeiro' }}">Financeiro</a></li>
       </ul>
-      <form method="post" action="/logout" class="sair">
-        <button type="submit">Sair</button>
-      </form>
+
+      {# Quem esta logado fica a vista: toda escrita vira linha de auditoria com
+         este usuario_id, e a tela tem de dizer em nome de quem se esta gravando. #}
+      <div class="rodape-lateral">
+        {% if usuario %}
+        <a class="cracha {{ 'ativo' if aba == 'perfil' }}" href="/perfil">
+          <span class="cracha-inicial">{{ usuario.nome[0] | upper }}</span>
+          <span class="cracha-texto">
+            <b>{{ usuario.nome }}</b>
+            <i>{{ usuario.email }}</i>
+          </span>
+        </a>
+        {% endif %}
+        <form method="post" action="/logout" class="sair">
+          <button type="submit">Sair</button>
+        </form>
+      </div>
     </nav>
     <main class="principal">
-      {% block conteudo %}{% endblock %}
+      <div class="faixa {% block largura %}{% endblock %}">
+        {% block conteudo %}{% endblock %}
+      </div>
     </main>
   </div>
   {% block scripts %}{% endblock %}

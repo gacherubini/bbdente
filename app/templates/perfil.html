@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block titulo %}Meu perfil — BDDente{% endblock %}
+{% block largura %}estreita{% endblock %}
+{% block conteudo %}
+<h1>Meu perfil</h1>
+<p class="legenda-topo">
+  Seu nome é o que fica gravado na auditoria de cada alteração do prontuário.
+</p>
+
+{% if recado == 'nome' %}
+  <p class="painel-ok">Nome atualizado.</p>
+{% elif recado == 'senha' %}
+  <p class="painel-ok">
+    Senha trocada. Qualquer outro computador que estivesse logado com a senha
+    antiga foi desconectado.
+  </p>
+{% endif %}
+
+<form class="cartao-form" method="post" action="/perfil">
+  <h2 class="titulo-cartao">Seus dados</h2>
+
+  {% if erro_nome %}<p class="painel-erro">{{ erro_nome }}</p>{% endif %}
+
+  <label class="rotulo" for="nome">Nome</label>
+  <input type="text" id="nome" name="nome" maxlength="120" required
+         value="{{ usuario.nome }}">
+
+  {# Email e clinica so mudam por fora da aplicacao: o email e a chave do login, e
+     o nome da clinica sai no cabecalho do prontuario em PDF. Aparecem aqui para a
+     pessoa conferir em que conta esta, nao para editar. #}
+  <div class="linha-dupla">
+    <div>
+      <label class="rotulo">Email</label>
+      <p class="campo-fixo">{{ usuario.email }}</p>
+    </div>
+    <div>
+      <label class="rotulo">Clínica</label>
+      <p class="campo-fixo">{{ clinica.nome if clinica else '—' }}</p>
+    </div>
+  </div>
+
+  <div class="acoes-form">
+    <button type="submit" class="primario">Salvar nome</button>
+  </div>
+</form>
+
+<form class="cartao-form" method="post" action="/perfil/senha" autocomplete="off">
+  <h2 class="titulo-cartao">Trocar a senha</h2>
+  <p class="ajuda-cartao">
+    Pedimos a senha atual para que um computador deixado aberto na recepção não
+    vire uma troca de dono da conta. Ao trocar, todos os outros computadores
+    logados nesta conta são desconectados.
+  </p>
+
+  {% if erro_senha %}<p class="painel-erro">{{ erro_senha }}</p>{% endif %}
+
+  <label class="rotulo" for="atual">Senha atual</label>
+  <input type="password" id="atual" name="atual" required
+         autocomplete="current-password">
+
+  <div class="linha-dupla">
+    <div>
+      <label class="rotulo" for="nova">Senha nova</label>
+      <input type="password" id="nova" name="nova" required
+             minlength="{{ minimo_senha }}" autocomplete="new-password">
+    </div>
+    <div>
+      <label class="rotulo" for="repetida">Repita a senha nova</label>
+      <input type="password" id="repetida" name="repetida" required
+             minlength="{{ minimo_senha }}" autocomplete="new-password">
+    </div>
+  </div>
+  <p class="ajuda-campo">
+    Ao menos {{ minimo_senha }} caracteres. Esta senha abre 30 anos de prontuário.
+  </p>
+
+  <div class="acoes-form">
+    <button type="submit" class="primario">Trocar a senha</button>
+  </div>
+</form>
+{% endblock %}

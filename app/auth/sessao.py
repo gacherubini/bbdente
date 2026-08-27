@@ -1,4 +1,9 @@
-"""Sessao em cookie assinado. Sem tabela de sessao: um usuario so, uma clinica."""
+"""Sessao em cookie assinado. Sem tabela de sessao: um usuario so, uma clinica.
+
+O cookie carrega duas coisas: quem e (`u`) e a marca da senha em vigor quando ele
+foi emitido (`v`). A marca e conferida a cada pedido, e e o que faz trocar a senha
+derrubar as sessoes antigas sem precisar de tabela de sessao.
+"""
 
 from fastapi import Depends, Request
 from fastapi.responses import RedirectResponse
@@ -7,6 +12,7 @@ from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
 
 from app.auth.models import Usuario
+from app.auth.senha import impressao
 from app.config import config
 from app.shared.db import obter_sessao
 
@@ -17,17 +23,26 @@ MAX_IDADE_SEGUNDOS = config.sessao_horas * 3600
 _serializador = URLSafeTimedSerializer(config.secret_key, salt=SALT)
 
 
-def assinar(usuario_id: int) -> str:
-    return _serializador.dumps({"u": usuario_id})
+def assinar(usuario: Usuario) -> str:
+    return _serializador.dumps({"u": usuario.id, "v": impressao(usuario.senha_hash)})
 
 
-def ler(token: str) -> int | None:
+def ler(token: str) -> tuple[int, str] | None:
+    """(id do usuario, marca da senha) — ou None se o token nao presta.
+
+    Token sem marca e token de antes desta mudanca: recusado, e a pessoa entra de
+    novo. Aceitar seria manter aberto exatamente o buraco que a marca fecha.
+    """
     try:
         dados = _serializador.loads(token, max_age=MAX_IDADE_SEGUNDOS)
     except (BadSignature, SignatureExpired, TypeError):
         return None
-    identificador = dados.get("u") if isinstance(dados, dict) else None
-    return identificador if isinstance(identificador, int) else None
+    if not isinstance(dados, dict):
+        return None
+    identificador, marca = dados.get("u"), dados.get("v")
+    if not isinstance(identificador, int) or not isinstance(marca, str):
+        return None
+    return identificador, marca
 
 
 class PrecisaLogar(HTTPException):
@@ -39,13 +54,19 @@ class PrecisaLogar(HTTPException):
 
 
 def usuario_atual(request: Request, sessao: Session = Depends(obter_sessao)) -> Usuario:
-    token = request.cookies.get(NOME_COOKIE, "")
-    usuario_id = ler(token)
-    if usuario_id is None:
+    cracha = ler(request.cookies.get(NOME_COOKIE, ""))
+    if cracha is None:
         raise PrecisaLogar()
+    usuario_id, marca = cracha
     usuario = sessao.get(Usuario, usuario_id)
     if usuario is None or not usuario.ativo:
         raise PrecisaLogar()
+    if impressao(usuario.senha_hash) != marca:
+        raise PrecisaLogar()
+    # O layout mostra em nome de quem se esta gravando, em toda tela. Guardar aqui
+    # e o que permite ao template ler isso sem que cada rota tenha de repassar o
+    # usuario — e sem que alguem esqueca de repassar em uma delas.
+    request.state.usuario = usuario
     return usuario
 
 

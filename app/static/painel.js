@@ -81,6 +81,26 @@
     el("painel-lancar").disabled = !pronto;
     el("painel-repetir").disabled = !Boolean(procedimento);
     el("painel-regioes").hidden = escopo !== "REGIOES";
+    destacarNoDesenho();
+  }
+
+  /* Devolve ao desenho o que o painel sabe estar selecionado.
+
+     Fica aqui dentro de proposito: `atualizarBotoes` e o unico ponto por onde
+     passam TODAS as mudancas de selecao — clique no dente, troca de escopo,
+     caixa de regiao, tratamento sugerido. Chamar de fora, em cada um deles,
+     era esquecer um. Antes disso o desenho nao respondia a nada: marcar
+     "Vestibular" no painel nao acendia nada na boca. */
+  function destacarNoDesenho() {
+    if (!odontograma) return;
+    var escopo = elEscopo();
+    if (escopo === "BOCA" || alvo.dente === null) {
+      odontograma.destacar(null);
+      return;
+    }
+    odontograma.destacar(
+      alvo.dente, escopo === "REGIOES" ? regioesMarcadas() : []
+    );
   }
 
   // --- categoria filtra os tratamentos ---

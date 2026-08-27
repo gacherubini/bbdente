@@ -24,16 +24,26 @@ body {
   font-size: 14px;
 }
 
-.app { display: flex; min-height: 100vh; }
+.app { display: flex; min-height: 100vh; align-items: flex-start; }
 
-/* --- lateral: a unica superficie roxa da interface --- */
+/* --- lateral: a unica superficie roxa da interface ---
+
+   Presa na janela, nao no documento. Antes ela era so uma coluna flex e crescia
+   ate a altura da PAGINA: numa tela comprida como o odontograma, o menu e o
+   "Sair" iam parar centenas de pixels abaixo da dobra, e nao dava para deslogar
+   sem rolar ate o rodape. Ha teste em tests/test_layout.py que falha se isso
+   voltar. */
 .lateral {
   width: 200px;
   flex: none;
   background: linear-gradient(170deg, var(--roxo-esc), #4C1D95);
-  padding: 20px 0;
+  padding: 20px 0 14px;
   display: flex;
   flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .marca {
@@ -71,7 +81,61 @@ body {
   font-weight: 600;
 }
 
-.sair { padding: 0 18px; }
+/* --- rodape da lateral: quem esta logado, e a saida --- */
+.rodape-lateral {
+  flex: none;
+  padding: 12px 12px 0;
+  margin-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+/* O cracha nao e enfeite: toda escrita vira linha de auditoria com este
+   usuario_id, e a tela precisa dizer em nome de quem se esta gravando. */
+.cracha {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 6px;
+  border-radius: var(--raio);
+  text-decoration: none;
+  margin-bottom: 8px;
+}
+.cracha:hover { background: rgba(255, 255, 255, 0.1); }
+.cracha.ativo { background: rgba(255, 255, 255, 0.16); }
+.cracha-inicial {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cracha-texto { min-width: 0; line-height: 1.3; }
+.cracha-texto b {
+  display: block;
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cracha-texto i {
+  display: block;
+  color: #C4B5FD;
+  font-size: 11px;
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sair { padding: 0; }
 .sair button {
   width: 100%;
   background: transparent;
@@ -85,7 +149,17 @@ body {
 .sair button:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
 
 /* --- area principal: branca --- */
-.principal { flex: 1; min-width: 0; padding: 22px 26px; }
+.principal { flex: 1; min-width: 0; padding: 22px 26px 48px; }
+
+/* O conteudo tem teto e fica no meio. Sem isso, num monitor largo o odontograma
+   e o painel de lancamento sao arrastados para cantos opostos da tela, e a linha
+   de leitura de qualquer texto fica larga demais. */
+.faixa { max-width: 1180px; margin: 0 auto; }
+.faixa.estreita { max-width: 560px; }
+/* O odontograma e a unica tela que pede mais largura que as outras: cada pixel
+   a mais vira dente maior, e dente maior e alvo de clique maior para quem marca
+   de luva, com a paciente na cadeira. */
+.faixa.larga { max-width: 1440px; }
 
 h1 { font-size: 20px; margin: 0 0 4px; }
 .legenda-topo { color: var(--texto-fraco); font-size: 13px; margin: 0 0 16px; }
@@ -253,17 +327,56 @@ button.primario:disabled { background: var(--roxo-brd); cursor: not-allowed; }
 }
 
 /* --- odontograma --- */
-.odonto-area { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
-.odonto-desenho {
+/* Um bloco so, centralizado. Antes era um flex sem teto: o desenho esticava ate
+   onde o monitor deixasse e empurrava o painel de lancamento para o canto
+   oposto, com um vao vazio no meio. */
+.odonto-area {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+/* Desenho em cima, o que ja foi marcado embaixo. O vao vazio que sobrava aqui
+   era metade da tela. */
+.odonto-coluna {
   flex: 1 1 640px;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.odonto-desenho {
   background: #FCFCFD;
   border: 1px solid #F1F5F9;
-  border-radius: 12px;
-  padding: 16px 10px;
-  overflow-x: auto;
+  border-radius: 14px;
+  padding: 20px 16px 16px;
 }
-#odontograma svg { display: block; margin: auto; }
+/* Fluido, nao com a largura fixa que o JS escreve no atributo: o viewBox ja
+   descreve a geometria, entao deixar o SVG ocupar a coluna aumenta o dente sem
+   que o desenhista precise saber quanto espaco tem. */
+#odontograma svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: auto;
+}
+
+/* --- o desenho responde ao que esta selecionado ---
+   Antes daqui, clicar num dente mudava so o texto do painel: no desenho ficava
+   o traco de :hover, que some quando o mouse sai. */
+/* Dois sinais com trabalhos diferentes: a mancha diz QUAL DENTE, o contorno roxo
+   diz QUAIS PAREDES. Contornar o dente inteiro de roxo — como estava — deixava as
+   duas coisas iguais e a parede marcada sumia no meio das outras. */
+.dente-fundo { fill: var(--roxo-cl); }
+/* Regiao marcada muda o CONTORNO, nunca o preenchimento: o preenchimento diz se
+   o tratamento e planejado, realizado ou ja existente, e cobrir isso com roxo
+   esconderia estado clinico atras de estado de interface. */
+.regiao.marcada {
+  stroke: var(--roxo-esc);
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
 .regiao { cursor: pointer; }
 .regiao:hover { stroke: var(--roxo); stroke-width: 2; }
 .legenda-cores {
@@ -282,10 +395,17 @@ button.primario:disabled { background: var(--roxo-brd); cursor: not-allowed; }
 .titulo-historico { font-size: 16px; margin: 26px 0 8px; }
 
 /* --- painel de lancamento --- */
+/* Grudado na janela: Adicionar, Repetir e Concluir ficavam abaixo da dobra numa
+   tela de 900px, e a dentista rolava a pagina toda vez que marcava um dente. */
 .painel {
-  flex: 0 0 290px;
+  flex: 0 0 300px;
+  align-self: flex-start;
+  position: sticky;
+  top: 22px;
+  max-height: calc(100vh - 44px);
+  overflow-y: auto;
   border: 1px solid var(--borda);
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 16px;
   background: #fff;
 }
@@ -420,20 +540,51 @@ a.botao-secundario:hover { background: var(--roxo-cl); }
 
 /* --- formulario de cadastro --- */
 .cartao-form {
-  max-width: 460px;
   border: 1px solid var(--borda);
-  border-radius: 12px;
-  padding: 18px 20px 20px;
-  margin-top: 6px;
+  border-radius: 14px;
+  padding: 22px 24px 24px;
+  margin-top: 14px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.cartao-form + .cartao-form { margin-top: 18px; }
+.titulo-cartao {
+  font-size: 15px;
+  margin: 0 0 4px;
+  letter-spacing: -0.01em;
+}
+.ajuda-cartao {
+  margin: 0 0 16px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--texto-fraco);
+}
+.titulo-cartao + .rotulo { margin-top: 14px; }
+.ajuda-campo {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--texto-fraco);
+}
+/* o que a tela mostra mas nao deixa editar: mesma altura de um campo, sem a
+   moldura que promete edicao */
+.campo-fixo {
+  margin: 0;
+  padding: 9px 0;
+  font-size: 14px;
+  color: var(--texto-fraco);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cartao-form input[type="text"],
 .cartao-form input[type="date"],
+.cartao-form input[type="password"],
 .cartao-form textarea,
 .cartao-form select {
   width: 100%;
   border: 1px solid var(--borda);
   border-radius: var(--raio);
-  padding: 9px 11px;
+  padding: 10px 12px;
   font-size: 14px;
   background: #fff;
   color: var(--texto);
@@ -479,9 +630,23 @@ a.botao-secundario:hover { background: var(--roxo-cl); }
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 20px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--borda);
 }
 .acoes-form button { margin: 0; }
+
+/* o retorno de uma acao que deu certo — irmao do .painel-erro */
+.painel-ok {
+  background: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  color: #166534;
+  border-radius: var(--raio);
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0 0 4px;
+}
 
 /* duplicata em base de 30 anos e o erro caro: o parecido aparece antes de gravar */
 .parecidos {
@@ -507,40 +672,63 @@ a.botao-secundario:hover { background: var(--roxo-cl); }
 .parecidos li a.nome:hover { text-decoration: underline; }
 .parecidos-data { color: var(--texto-fraco); font-size: 12px; }
 
-/* --- atendimento em aberto, na boca em branco --- */
-.atendimento {
-  border-top: 1px solid var(--borda);
-  margin-top: 18px;
-  padding-top: 14px;
+/* --- o que ja foi marcado na boca em branco, embaixo do desenho ---
+
+   Esta lista se chamava `.atendimento`, mesmo nome do cartao da tela de
+   atendimentos do dia — duas regras diferentes disputando o mesmo seletor, e a
+   de baixo no arquivo vencia. Nome proprio encerra a briga. */
+.rascunho-lista {
+  border: 1px solid var(--borda);
+  border-radius: 14px;
+  padding: 16px 18px 18px;
+  background: #fff;
 }
+.rascunho-topo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-bottom: 12px;
+}
+.rascunho-topo h2 { font-size: 15px; margin: 0; letter-spacing: -0.01em; }
+.rascunho-aviso {
+  font-size: 12px;
+  color: #B45309;
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  border-radius: 20px;
+  padding: 3px 10px;
+}
+.rascunho-acoes { margin-top: 14px; }
+.rascunho-acoes button { width: auto; min-width: 220px; margin: 0; }
+
 .atendimento-itens { list-style: none; margin: 0; padding: 0; }
 .atendimento-itens li {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
   border: 1px solid var(--borda);
   border-radius: var(--raio);
-  padding: 7px 9px;
+  padding: 9px 12px;
   margin-bottom: 6px;
-  font-size: 12.5px;
-  line-height: 1.35;
+  font-size: 13px;
+  line-height: 1.4;
 }
 .atendimento-itens li span { flex: 1; }
-/* '.painel button' poe 100% de largura em todo botao do painel; o 'x' de tirar
-   do atendimento precisa de mais peso para escapar disso. */
-.painel .atendimento-tirar {
+.atendimento-tirar {
   background: none;
   border: 0;
   color: var(--texto-fraco);
-  font-size: 16px;
+  font-size: 17px;
   line-height: 1;
   padding: 0 2px;
   cursor: pointer;
   width: auto;
   margin: 0;
 }
-.painel .atendimento-tirar:hover { color: #B91C1C; }
-.atendimento-vazio { color: var(--texto-fraco); font-size: 12.5px; margin: 0; }
+.atendimento-tirar:hover { color: #B91C1C; }
+.atendimento-vazio { color: var(--texto-fraco); font-size: 13px; margin: 0; }
 
 /* --- janela que fecha o atendimento --- */
 .janela {

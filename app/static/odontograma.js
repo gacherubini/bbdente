@@ -16,6 +16,8 @@
   var VAZIO = "#FFFFFF";
   var TRACO = "#94A3B8";
 
+  var SVG_NS = "http://www.w3.org/2000/svg";
+
   var LADO = 42;      // aresta do quadrado do dente
   var VAO = 8;        // espaco entre dentes vizinhos
   var VAO_LINHA_MEDIA = 22;
@@ -25,6 +27,11 @@
 
   var estado = null;
   var aoClicar = null;
+
+  // O que esta selecionado agora. Vive aqui, e nao no DOM, porque `desenhar()`
+  // refaz o innerHTML inteiro a cada `atualizar()` — sem guardar, lancar um
+  // tratamento apagaria a selecao da tela.
+  var destaque = { dente: null, regioes: [] };
 
   function pintar(dente, regiao) {
     var valor = dente.regioes[regiao];
@@ -100,7 +107,8 @@
       if (k === 8) x += VAO_LINHA_MEDIA;
       var fdi = ordem[k];
       partes +=
-        '<g transform="translate(' + x + ',0)" class="dente" data-dente="' + fdi + '">' +
+        '<g transform="translate(' + x + ',0)" class="dente" data-dente="' + fdi +
+        '" data-raiz="' + (raizParaCima ? "cima" : "baixo") + '">' +
         desenharDente(fdi, estado.dentes[fdi], raizParaCima) + "</g>";
       marcas.push({ x: x + LADO / 2, fdi: fdi });
       x += LADO + VAO;
@@ -139,6 +147,43 @@
     svg += '<g transform="translate(0,' + yBaixo + ')">' + baixo.svg + "</g>";
     svg += "</svg>";
     alvo.innerHTML = svg;
+    aplicarDestaque(alvo);
+  }
+
+  /* Marca no desenho o dente e as regioes selecionados.
+
+     Isto e pintura, nao anatomia: quem decide QUAIS regioes estao selecionadas e
+     o painel, que recebe do servidor. Aqui so se acha o elemento pelo data-* que
+     ja existe e se poe uma classe — o CSS faz o resto. */
+  function aplicarDestaque(alvo) {
+    if (destaque.dente === null) return;
+    var grupo = alvo.querySelector('.dente[data-dente="' + destaque.dente + '"]');
+    if (!grupo) return;
+    grupo.classList.add("ativo");
+
+    // Uma mancha atras do dente inteiro. O contorno roxo sozinho some no meio de
+    // 32 dentes; a mancha se acha de relance, que e como se olha esta tela.
+    // `createElementNS` e nao innerHTML: SVG tem namespace proprio.
+    // A raiz sai so de um lado do dente. Cobrir os dois lados fazia a mancha
+    // subir por cima da faixa de numeros da arcada de baixo.
+    var raizParaCima = grupo.getAttribute("data-raiz") === "cima";
+    var fundo = document.createElementNS(SVG_NS, "rect");
+    fundo.setAttribute("x", -6);
+    fundo.setAttribute("y", raizParaCima ? -RAIZ - 6 : -6);
+    fundo.setAttribute("width", LADO + 12);
+    fundo.setAttribute("height", LADO + RAIZ + 12);
+    fundo.setAttribute("rx", 6);
+    fundo.setAttribute("class", "dente-fundo");
+    fundo.setAttribute("pointer-events", "none");
+    grupo.insertBefore(fundo, grupo.firstChild);
+
+    for (var k = 0; k < destaque.regioes.length; k++) {
+      var parte = alvo.querySelector(
+        '.regiao[data-dente="' + destaque.dente +
+        '"][data-regiao="' + destaque.regioes[k] + '"]'
+      );
+      if (parte) parte.classList.add("marcada");
+    }
   }
 
   function montar(opcoes) {
@@ -160,6 +205,11 @@
     return {
       atualizar: function (novoEstado) {
         estado = novoEstado;
+        desenhar(alvo);
+      },
+      // O painel avisa por aqui o que esta selecionado. `dente` nulo apaga tudo.
+      destacar: function (dente, regioes) {
+        destaque = { dente: dente, regioes: regioes || [] };
         desenhar(alvo);
       },
       estado: function () {

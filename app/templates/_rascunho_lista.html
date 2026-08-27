@@ -1,0 +1,28 @@
+{# O que ja foi marcado neste atendimento.
+
+   Vive embaixo do desenho, nao dentro do painel: e o que a dentista confere o
+   tempo todo enquanto marca, e no fim do painel — depois de dez campos — nascia
+   abaixo da dobra numa tela de 900px.
+
+   Os ids sao contrato com o rascunho.js, que acha tudo por id. Renomear
+   qualquer um aqui quebra a lista sem quebrar teste de rota. #}
+<section class="rascunho-lista" id="atendimento">
+  <div class="rascunho-topo">
+    <h2>Neste atendimento</h2>
+    <span class="rascunho-aviso">
+      ainda não gravado — vale só neste computador
+    </span>
+  </div>
+
+  <ul class="atendimento-itens" id="atendimento-itens"></ul>
+
+  <p class="atendimento-vazio" id="atendimento-vazio">
+    Nada marcado ainda. Clique num dente do desenho acima para começar.
+  </p>
+
+  <div class="rascunho-acoes">
+    <button type="button" class="primario" id="atendimento-concluir" disabled>
+      Concluir atendimento
+    </button>
+  </div>
+</section>

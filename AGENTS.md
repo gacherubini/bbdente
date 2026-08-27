@@ -161,8 +161,14 @@ Nenhum destes é esquecimento — são escolhas registradas para não virarem su
   Consequência aceita: rascunho não atravessa computadores, e fechar o navegador
   antes de concluir perde o que foi marcado. A alternativa — gravar lançamento
   sem paciente — criaria dado clínico órfão, que é pior.
-- Um usuário só, sem perfis. A `auditoria` já grava `usuario_id`, então acrescentar
-  gente depois não muda o schema.
+- Um usuário só, **sem papéis nem permissões** — não confundir com a tela
+  `/perfil`, que existe e serve para a própria pessoa ver seus dados e trocar a
+  senha. A `auditoria` já grava `usuario_id`, então acrescentar gente depois não
+  muda o schema.
+- **Trocar a senha derruba as sessões abertas.** O cookie carrega uma marca
+  derivada do `senha_hash` (`auth.senha.impressao`), conferida a cada pedido.
+  Por isso `assinar()` recebe o `Usuario`, não o `id`: sem o hash não dá para
+  emitir cookie. Cookie sem marca é recusado — não há período de tolerância.
 - Sem paginação: a busca limita a 100 resultados. O corte acontece no banco,
   **depois** do `ORDER BY` — trocar a ordem da lista troca quais 100 aparecem.
 - Só dentição permanente (32 dentes). Decíduo fica para v2.
