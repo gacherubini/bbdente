@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Header
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
 
-from app.agenda.lembretes import despachar, reservar
+from app.agenda.lembretes import rodar
 from app.agenda.whatsapp import Provedor
 from app.agenda.whatsapp.fake import ProvedorFake
 from app.config import config
@@ -45,32 +45,35 @@ def rodar_lembretes(
     sessao: Session = Depends(obter_sessao),
     provedor: Provedor = Depends(provedor_atual),
 ):
-    """Reserva e despacha os lembretes da clinica.
+    """Uma batida do relogio, pedida de fora.
+
+    Quem bate de verdade e o laco dentro do app (`agenda/relogio.py`), de 15 em
+    15 minutos. Este endpoint e o gatilho de emergencia: serve para forcar uma
+    passada sem esperar, e para conferir de fora que o encanamento responde.
 
     `POST` e nao `GET` para que um crawler nao dispare a agenda inteira. E o
-    corpo da resposta so tem numeros: ele vai para o log de um servico de cron de
+    corpo da resposta so tem numeros: ele pode ir para o log de um servico de
     terceiro, e nome de paciente nao passeia por la.
 
     E idempotente por construcao (o `UNIQUE` do lembrete), entao pode ser chamado
-    dez vezes seguidas — o que e exatamente o que um cron mal configurado faz.
+    dez vezes seguidas sem mandar nada duas vezes.
     """
     _conferir(x_tarefa_token)
 
     # Relogio de parede da clinica: o container roda com TZ=America/Sao_Paulo, e
     # e por isso que `datetime.now()` sem fuso e o certo aqui (§4 do plano).
-    agora = datetime.now()
-    clinica_id = config.clinica_id_padrao
-
-    reserva = reservar(sessao, clinica_id=clinica_id, agora=agora)
-    sessao.commit()
-    envio = despachar(
-        sessao, clinica_id=clinica_id, agora=agora, provedor=provedor
+    resumo = rodar(
+        sessao,
+        clinica_id=config.clinica_id_padrao,
+        agora=datetime.now(),
+        provedor=provedor,
     )
     return {
-        "reservados": reserva.reservados,
-        "descartados": reserva.descartados,
-        "enviados": envio.enviados,
-        "expirados": envio.expirados,
-        "falhados": envio.falhados,
-        "cancelados": envio.cancelados,
+        "reservados": resumo.reservados,
+        "descartados": resumo.descartados,
+        "enviados": resumo.enviados,
+        "expirados": resumo.expirados,
+        "falhados": resumo.falhados,
+        "cancelados": resumo.cancelados,
+        "esperando": resumo.esperando,
     }

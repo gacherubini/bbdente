@@ -47,7 +47,8 @@ encontram, e existe só para o Alembic enxergar o metadata completo.
 | `financeiro/service.py` | `resumo()`, `a_receber()`, e o desfazer de recebimento |
 | `agenda/service.py` | `grade()` monta semana e mês em 3 consultas; `marcar()` e `conflitos_de()` |
 | `agenda/mensagem.py` | a allowlist de LGPD — leia antes de mexer em qualquer coisa de mensagem |
-| `agenda/lembretes.py` | `reservar()` e `despachar()`, as duas fases do disparo |
+| `agenda/lembretes.py` | `reservar()` e `despachar()`, as duas fases; `rodar()` é a passada inteira |
+| `agenda/relogio.py` | o laço que bate de 15 em 15 min para cada lembrete sair na hora dele |
 | `agenda/whatsapp/` | o `Protocol` do provedor e o `fake` que roda nos testes |
 
 ## O odontograma
@@ -141,5 +142,26 @@ O que não pode ser afrouxado sem pensar muito:
   corta número comprido — aqui o preço de inventar dígito é mandar mensagem de paciente
   para um estranho.
 
-O disparo é chamado por `POST /tarefas/lembretes`, autenticado por segredo em cabeçalho.
-Token errado responde **404, nunca 401**: 401 confirmaria que o endereço existe.
+- **Cada lembrete tem a sua hora, e ela é recalculada do horário vivo.** O vencimento é
+  `consulta − antecedência`, e `agenda/relogio.py` bate de 15 em 15 minutos até passar
+  por ele. Nunca confie no `agendado_para` gravado: `remarcar()` muda dia e hora na
+  mesma linha, e um vencimento velho manda a mensagem na hora do horário que não existe
+  mais. Tem teste.
+- **Hora que vem do banco passa por `lembretes.parede()`.** As colunas são `timestamptz`
+  e o Postgres as devolve em UTC; a clínica vive em UTC−3. Comparar sem converter
+  empurra tudo três horas para a frente, e o estrago é silencioso: um horário marcado
+  com folga passa a parecer marcado depois do vencimento e a paciente não recebe nada —
+  sem exceção, sem log, sem tela vermelha.
+- **`marcado_em_cima` compara com `agendamento.criado_em`, não com o relógio de agora.**
+  Se comparasse com o relógio, uma queda do app de duas horas descartaria quem marcou
+  com folga, e a tela diria "marcou em cima da hora" — mentira sobre a paciente. Atraso
+  nosso não vira culpa dela.
+- **Não existe responder "PARAR".** Ninguém lê as respostas, e a Task 19 foi cancelada.
+  O desligamento é o botão na ficha, à mão. Por isso a mensagem **nunca** pode oferecer
+  "responda PARAR": prometer um canal que não existe é pior que não oferecer nenhum.
+
+O relógio bate sozinho dentro do app. Além dele, `POST /tarefas/lembretes` é o gatilho
+de emergência, autenticado por segredo em cabeçalho — token errado responde **404, nunca
+401**, porque 401 confirmaria que o endereço existe. Os três caminhos (relógio, endpoint
+e o botão "Enviar agora") passam por `lembretes.rodar()`, e há um teste de contrato que
+falha se algum deles virar cópia.

@@ -50,18 +50,17 @@
     trás</b>: a fila é a agenda de amanhã, não um saco de mensagens acumuladas.
   </p>
 
-  <div class="linha-dupla agenda-linha">
-    <div>
-      <label class="rotulo" for="lembrete_hora">Disparo às</label>
-      <input type="time" id="lembrete_hora" name="lembrete_hora"
-             value="{{ configuracao.lembrete_hora.strftime('%H:%M') }}">
-    </div>
-    <div>
-      <label class="rotulo" for="lembrete_horas_antes">Antecedência (horas)</label>
-      <input type="text" id="lembrete_horas_antes" name="lembrete_horas_antes"
-             value="{{ configuracao.lembrete_horas_antes }}">
-    </div>
-  </div>
+  {# Nao ha mais "hora do disparo". Cada paciente tem a dela: a hora da consulta
+     menos a antecedencia. O campo antigo era gravado e nunca lido por ninguem —
+     prometia um horario que o sistema nao cumpria. #}
+  <label class="rotulo" for="lembrete_horas_antes">Antecedência (horas)</label>
+  <input type="text" id="lembrete_horas_antes" name="lembrete_horas_antes"
+         value="{{ configuracao.lembrete_horas_antes }}">
+  <p class="ajuda-campo">
+    Cada paciente recebe <b>este tanto de horas antes da consulta dela</b>. Com
+    24, quem tem horário às 21h recebe às 21h do dia anterior, e quem tem às 8h
+    recebe às 8h do dia anterior — não saem todas juntas.
+  </p>
 
   <label class="rotulo" for="lembrete_teto_diario">Teto por dia</label>
   <input type="text" id="lembrete_teto_diario" name="lembrete_teto_diario"
@@ -85,20 +84,24 @@
 
 <div class="cartao">
   <p>
-    <b>Último disparo:</b>
-    {% if ultimo_disparo %}
-      {{ ultimo_disparo.strftime('%d/%m/%Y às %H:%M') }}
-      {% if disparo_velho %}
-      <span class="aviso-forte">há mais de 48h — o disparo pode ter parado</span>
-      {% endif %}
-    {% else %}nenhum ainda{% endif %}
+    <b>Última mensagem enviada:</b>
+    {% if ultimo_envio %}
+      {{ ultimo_envio.strftime('%d/%m/%Y às %H:%M') }}
+    {% else %}nenhuma ainda{% endif %}
   </p>
 
   <p class="titulo-cartao">
-    Próximo disparo — {{ vao_receber | length + nao_recebem | length }} consulta(s)
+    Próximas {{ configuracao.lembrete_horas_antes }} horas —
+    {{ vao_receber | length + nao_recebem | length }} consulta(s)
   </p>
   <ul class="previsao">
-    <li><b>{{ vao_receber | length }}</b> vão receber</li>
+    {% for linha in vao_receber %}
+    <li>
+      {{ linha.hora }} · {{ linha.nome }} —
+      <span class="rotulo-fraco">sai {{ linha.sai_as }}</span>
+    </li>
+    {% endfor %}
+    {% if not vao_receber %}<li>ninguém vai receber</li>{% endif %}
     {% for linha in nao_recebem %}
     <li class="previsao-fora">
       {{ linha.hora }} · {{ linha.nome }} —
@@ -111,9 +114,10 @@
   </ul>
 
   {# Idempotente por construcao (o UNIQUE do lembrete): clicar duas vezes nao
-     manda duas vezes, e e por isso que este botao pode existir sem medo. #}
+     manda duas vezes, e e por isso que este botao pode existir sem medo. Ele
+     tampouco adianta lembrete: manda o que ja venceu, nao o que ainda espera. #}
   <form method="post" action="/configuracoes/enviar-agora">
-    <button type="submit" class="secundario">Enviar agora os de amanhã</button>
+    <button type="submit" class="secundario">Enviar agora os que já venceram</button>
   </form>
 </div>
 

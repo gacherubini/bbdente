@@ -475,8 +475,9 @@ clínico justamente por causa da allowlist.
 primeiro corte ninguém lê as respostas (§11.10), então a frase tem de ser verdadeira:
 *"Se preferir não receber mais estes lembretes, é só avisar na recepção ou ligar
 para (51) ...."* — e existe um botão na ficha que grava `aceita_whatsapp = false` na
-hora. Prometer "responda PARAR" sem ninguém lendo é pior que não prometer. Quando
-entrar o webhook (Task 19), a frase muda e o desligamento vira automático.
+hora. Prometer "responda PARAR" sem ninguém lendo é pior que não prometer. **E fica
+assim para sempre: a Task 19 foi cancelada em 27/08/2026** — ninguém vai ler as
+respostas, então a frase nunca muda e o desligamento nunca vira automático.
 
 ### 11.4 A decisão: Baileys, e o que ela obriga
 
@@ -502,11 +503,25 @@ O que a pesquisa diz, honestamente, incluindo o que joga contra a decisão:
 
 Por isso a decisão é aceita **com estas quatro condições, que não são opcionais**:
 
-1. **Número secundário, nunca o da clínica.** Um chip novo (R$ 10–20), "Consultório
-   Dra. Kátia — avisos". É a única mitigação que de fato mitiga: se o número cair, a
-   clínica perde um robô, não a porta da frente de 30 anos que está na fachada, no
-   Google e no WhatsApp de ~500 pacientes. Custo: a mensagem precisa dizer o número
-   real para responder ("não responda por aqui — ligue para (51) ...").
+1. ~~**Número secundário, nunca o da clínica.**~~ **REVERTIDA em 27/08/2026 pelo dono
+   do projeto: será o número pessoal que a mãe dele já usa no dia a dia**, conectado
+   ao Evolution. O raciocínio original — "chip novo é mais seguro" — estava errado ao
+   contrário, e vale registrar por quê:
+
+   - **A favor da decisão nova.** A detecção pesa razão de resposta, distância no
+     grafo de contatos e ritmo robótico. Um número recém-criado que começa a mandar
+     mensagem parecida para dezenas de desconhecidos é *o* perfil que ela procura.
+     Um número com anos de conversa real, contatos reais e gente que responde — e no
+     qual várias pacientes já são contato — é o perfil oposto. A **probabilidade** de
+     bloqueio cai bastante.
+   - **Contra.** O prejuízo, se acontecer, sobe na mesma medida: não se perde um robô,
+     perde-se o WhatsApp pessoal dela, e banimento em via não oficial é permanente e
+     sem apelação.
+
+   Ou seja: **probabilidade menor, prejuízo maior.** A decisão é do dono do projeto e
+   está tomada; o que ela obriga é as condições 2 e 3 abaixo deixarem de ser
+   recomendação e passarem a ser inegociáveis, e o critério de desistir da condição 3
+   valer com mais força ainda.
 2. **Volume e forma humanos.** Teto de 20 mensagens/dia, intervalo **aleatório de 20
    a 90 segundos** entre elas, nunca no mesmo segundo, nunca para quem nunca falou com
    a clínica. Isso está na Task 14 como requisito, com teste.
@@ -575,7 +590,12 @@ modelo_mensagem
 configuracao_clinica                          -- uma linha por clínica, colunas tipadas
   clinica_id            PK, FK clinica
   lembrete_ativo        boolean  NOT NULL default false   -- a chave geral (§11.7); nasce DESLIGADA
-  lembrete_hora         time     NOT NULL default '18:00'
+  lembrete_hora         time     NOT NULL default '18:00'   -- MORTA desde 27/08:
+                                 -- nao existe mais "hora do disparo". A coluna
+                                 -- continua no banco por um deploy: derrubar
+                                 -- coluna junto com o codigo que a le quebra o
+                                 -- app antigo, que ainda atende enquanto o novo
+                                 -- sobe (o release_command roda ANTES da troca).
   lembrete_horas_antes  smallint NOT NULL default 24
   lembrete_teto_diario  smallint NOT NULL default 20
   whatsapp_provedor     varchar(20) NULL
@@ -609,8 +629,40 @@ Quatro decisões de schema, cada uma com motivo:
 
 **O que impede a mesma paciente de receber duas vezes** é `UNIQUE (agendamento_id,
 tipo)`. Não é um `if`, não é um lock, não é disciplina — é o banco recusando a
-segunda linha. Vale se o cron disparar duas vezes, se houver duas máquinas durante
-um deploy, e se ela clicar em "enviar agora" enquanto o cron roda.
+segunda linha. Vale se o relógio bater duas vezes, se houver duas máquinas durante
+um deploy, e se ela clicar em "enviar agora" enquanto o relógio roda.
+
+> **Corrigido em 27/08/2026 — cada lembrete tem a sua hora.**
+>
+> O desenho original era **uma leva por dia**: às 18h saía tudo que coubesse nas
+> próximas 24 horas. O defeito, apontado pelo dono do projeto, é que ninguém recebia
+> as 24 horas prometidas — quem tinha consulta às 22h era avisado 28 horas antes, e
+> quem tinha às 8h, 14 horas antes. E o campo "Disparo às" da tela era **gravado e
+> nunca lido por nenhuma linha de código**: prometia um horário que o sistema não
+> cumpria.
+>
+> Agora o vencimento é por consulta — `consulta − antecedência` — e um relógio dentro
+> do app (`app/agenda/relogio.py`) bate **de 15 em 15 minutos** até passar por ele.
+> Consulta das 21h é avisada entre 21h00 e 21h15 da véspera; a das 8h, às 8h da
+> véspera. **Não existe "hora do disparo": existe a hora de cada paciente.**
+>
+> A janela da reserva é a própria antecedência, e é ela que faz o horário: um
+> agendamento só vira candidato quando falta exatamente a antecedência, e aí nasce e
+> sai na mesma batida. Não há fila de espera para administrar.
+>
+> Três consequências registradas:
+>
+> - **O relógio mora dentro do app**, e não num serviço de cron de terceiro. Ele
+>   precisa bater o dia inteiro, e o Evolution já obriga a máquina a ficar de pé
+>   (`min_machines_running = 1`). Com a máquina acordada de qualquer forma, um cron de
+>   fora seria mais uma conta, mais um segredo e mais uma coisa para quebrar calada.
+>   O `POST /tarefas/lembretes` continua existindo como **gatilho de emergência**.
+> - **A batida vai para uma thread.** `despachar` dorme de 20 a 90 segundos entre
+>   envios; no laço de eventos, essa pausa congelaria o app inteiro.
+> - **A faixa vermelha de "48h sem disparo" saiu.** Ela existia para descobrir que um
+>   cron externo morreu calado. Com o relógio dentro do app, "o relógio parou" é a
+>   mesma coisa que "o app caiu", e disso o healthcheck já cuida. Mantida, ela ficaria
+>   vermelha todo feriado prolongado — e alarme que grita à toa se aprende a ignorar.
 
 O disparo é em duas fases, e a ordem importa:
 
@@ -626,7 +678,24 @@ sem_numero        nenhum telefone aproveitável — da ficha ou o avulso (§11.8
 avulso_recusou    avisar_avulso = false
 numero_suspeito   o número existe mas não passa na régua
 teto_diario       passou de lembrete_teto_diario naquele dia
+marcado_em_cima   o horário foi marcado DEPOIS da própria hora de avisar
 ```
+
+**`marcado_em_cima` (27/08/2026).** Marcaram às 12h de hoje uma consulta para as 9h
+de amanhã: são 21 horas de antecedência, e o vencimento das 24h já tinha passado às
+9h da manhã. **Decisão do dono do projeto: não manda.** O preço é real e está
+registrado — quem marca de véspera é justamente quem mais esquece — e o que o segura
+é a tela já listar quem não vai receber e por quê, para alguém ligar.
+
+A comparação é com **quando o horário foi marcado** (`agendamento.criado_em`), e não
+com o relógio de agora. A diferença não é sutil: se fosse com o relógio, uma queda do
+app de duas horas descartaria quem marcou com folga, e a tela diria "marcou em cima
+da hora" — uma mentira sobre a paciente. Atraso nosso não vira culpa dela.
+
+E `criado_em` vem do banco como `timestamptz`, **em UTC**, enquanto a clínica vive em
+UTC−3. Comparar sem converter empurra o horário três horas para a frente e descarta
+quem marcou com folga, sem exceção, sem log e sem tela vermelha. É o que
+`lembretes.parede()` existe para impedir, e tem teste próprio.
 
 Guardar o descarte é o que permite a tela dizer *"8 pacientes de amanhã não vão
 receber: 6 sem permissão, 2 sem número"* — informação sobre a qual ela consegue agir
@@ -737,15 +806,26 @@ Fase 5 — o encanamento (nada é enviado)
 
 Fase 6 — o disparo (provedor de mentira)
  14. agenda/lembretes.py — reservar() e despachar()
- 15. POST /tarefas/lembretes + cron interno + min_machines_running = 1
+ 15. POST /tarefas/lembretes (gatilho de emergência)
  16. Tela /configuracoes, com a chave geral
+ 15b. agenda/relogio.py — a batida de 15 min + min_machines_running = 1   [27/08]
 
 Fase 7 — o WhatsApp de verdade
  17. Evolution API como app separado no Fly + provedor evolution.py
  18. Conectar/desconectar na tela (QR)
- 19. Parar de receber: botão hoje, webhook depois
+ 19. ~~Parar de receber: webhook~~  — CANCELADA em 27/08/2026
  20. Operação: OPERACAO.md, playbook de queda, primeiro envio real
 ```
+
+**Task 15b, acrescentada em 27/08/2026.** O gatilho virou um relógio dentro do app,
+com vencimento por consulta (§11.6). Feita.
+
+**Task 19 cancelada em 27/08/2026, por decisão do dono do projeto.** Não haverá
+resposta automática de "PARAR". O desligamento continua existindo pelo **botão na
+ficha da paciente**, que existe desde a Task 10 — alguém clica quando ela pedir. O
+que se perde é só o caminho automático; o direito de revogar o consentimento continua
+atendido, à mão. Consequência que fica registrada: **o rodapé da mensagem nunca pode
+dizer "responda PARAR"**, porque ninguém lê as respostas.
 
 #### Task 10 — Consentimento
 
@@ -850,8 +930,9 @@ Fase 7 — o WhatsApp de verdade
 - [ ] `POST /tarefas/lembretes` com `X-Tarefa-Token` e `hmac.compare_digest`; token errado → 404.
 - [ ] Responde contadores em JSON; **nunca nome de paciente no corpo** (isso vai para log de terceiro).
 - [ ] `TAREFAS_TOKEN` em `app/config.py` e `fly secrets`.
-- [ ] `min_machines_running = 1` no `fly.toml`, com o custo escrito no `OPERACAO.md`.
-- [ ] Cron interno no container + o endpoint como gatilho manual/externo de reserva.
+- [x] `min_machines_running = 1` no `fly.toml`, com o custo escrito no `OPERACAO.md`. *(27/08)*
+- [x] ~~Cron interno no container~~ → **relógio dentro do app** (`agenda/relogio.py`),
+      batendo de 15 em 15 minutos; o endpoint fica como gatilho de emergência. *(27/08)*
 
 **Testes**
 - [ ] sem token → 404; token errado → 404; token certo → 200 com contadores
@@ -894,19 +975,17 @@ Detalhada no §12. Requisitos e testes lá.
 - [ ] desconectado, o disparo não tenta enviar: tudo vira `FALHOU/desconectado`
 - [ ] a faixa aparece na agenda quando o estado é desconectado
 
-#### Task 19 — Parar de receber
+#### Task 19 — ~~Parar de receber~~ (CANCELADA em 27/08/2026)
 
-**Requisitos**
-- [ ] Botão na ficha já existe desde a Task 10; aqui entra o caminho automático.
-- [ ] Webhook de resposta: "PARAR", "SAIR", "CANCELAR", sem caixa e sem acento → `aceita_whatsapp = false` + auditoria.
-- [ ] Só então o rodapé da mensagem passa a dizer "responda PARAR".
-- [ ] O webhook **não** guarda o conteúdo das respostas — lê e descarta. Guardar conversa de paciente é abrir um prontuário paralelo que ninguém pediu.
+Não haverá webhook de "PARAR". Decisão do dono do projeto.
 
-**Testes**
-- [ ] "parar", "PARAR", "Parar." e "sair" desligam
-- [ ] "obrigada!" não desliga
-- [ ] desligado não recebe no dia seguinte
-- [ ] o corpo da resposta não é gravado em lugar nenhum
+O desligamento continua existindo, à mão: o botão "pediu para não receber" na ficha
+da paciente, que está pronto desde a Task 10 e grava `aceita_whatsapp = false` com
+auditoria dos dois lados. Alguém clica quando a paciente pedir.
+
+**O que fica proibido por causa disso:** o rodapé da mensagem **nunca** pode dizer
+"responda PARAR". Ninguém lê as respostas, e prometer um canal que não existe é pior
+que não oferecer canal nenhum. O texto semeado pede que ela ligue, e é assim que fica.
 
 #### Task 20 — Operação
 
@@ -922,8 +1001,11 @@ Detalhada no §12. Requisitos e testes lá.
 - **Um lembrete só, o da véspera.** Sem confirmação na marcação, sem "2h antes", sem
   aniversário, sem recall de limpeza. O encanamento serve para todos; o primeiro
   corte manda um.
-- **Ninguém lê as respostas no primeiro corte.** Por isso a mensagem não pede
-  confirmação — pede que ligue se não puder vir.
+- **Ninguém lê as respostas, e isso agora é permanente** (Task 19 cancelada). Por
+  isso a mensagem não pede confirmação nem oferece "responda PARAR" — pede que ligue
+  se não puder vir. Quem pedir para sair sai pelo botão da ficha, à mão.
+- **Quem marca depois da hora de avisar não recebe** (`marcado_em_cima`). Aparece na
+  tela com o motivo, para alguém ligar.
 - **Sem mídia, sem botão, sem link de confirmar.**
 - **Sem reenvio automático de falha.** Falhou, aparece na tela, ela liga. Robô
   insistindo é robô banido.
@@ -931,7 +1013,9 @@ Detalhada no §12. Requisitos e testes lá.
 - **Sem relatório de entrega e leitura.**
 - **Só o telefone principal**, e só quem autorizou — que no começo é quase ninguém, e
   isso é a lei funcionando, não um bug.
-- **`min_machines_running` passa a 1**, e é custo direto da escolha por Baileys.
+- **`min_machines_running` passa a 1** (~US$ 3 a 5/mês), e é custo direto de duas
+  escolhas somadas: Baileys precisa do socket vivo, e o relógio precisa bater o dia
+  inteiro. A máquina não dorme mais.
 
 ---
 
@@ -973,7 +1057,8 @@ direto lá.
 │       ficou para trás: a fila é a agenda de amanhã, não um saco  │
 │       de mensagens acumuladas.                                   │
 │                                                                  │
-│   Disparo às [ 18:00 ]   Antecedência: 24 h   Teto: 20/dia       │
+│   Antecedência: [ 24 ] h        Teto: [ 20 ] /dia               │
+│   cada paciente recebe 24 h antes da consulta DELA              │
 │   Último disparo: ontem às 18:03  ✓                              │
 │                                                                  │
 │   Próximo disparo — 12 consultas amanhã:                         │
@@ -1007,7 +1092,11 @@ Seis requisitos que não são decoração:
   e é justamente por isso que pode existir sem medo.
 - **Quem não vai receber é uma lista com link para a ficha.** É a única parte da tela
   sobre a qual ela consegue agir hoje.
-- **"Último disparo" vira faixa vermelha depois de 48h.** É o monitor do cron, e é de
+- ~~**"Último disparo" vira faixa vermelha depois de 48h.**~~ **Saiu em 27/08/2026**,
+  junto com o cron externo: com o relógio dentro do app, "o relógio parou" é a mesma
+  coisa que "o app caiu", e disso o healthcheck do Fly já cuida. Mantida, a faixa
+  ficaria vermelha todo feriado prolongado. Fica só "última mensagem enviada", como
+  informação. O texto original, para memória: é o monitor do cron, e é de
   graça.
 - **Nenhum segredo é exibido nem editável na tela.**
 
@@ -1017,7 +1106,7 @@ Seis requisitos que não são decoração:
 - [ ] `GET /configuracoes` e `POST /configuracoes` (formulário, 303 de volta), com `usuario_atual`.
 - [ ] Link no rodapé da lateral, **sem** item na navegação; `tests/test_layout.py` afirma as duas coisas.
 - [ ] A chave geral grava `lembrete_ativo` e vai para a auditoria.
-- [ ] Faixa na agenda quando desconectado, quando o último disparo passou de 48h, e linha discreta quando a chave está desligada.
+- [ ] Faixa na agenda quando desconectado, e linha discreta quando a chave está desligada. *(a faixa de 48h saiu em 27/08 — ver acima)*
 - [ ] `POST /configuracoes/enviar-agora` chama o mesmo `reservar`/`despachar` do cron.
 - [ ] A prévia da mensagem usa **dados de exemplo**, nunca uma paciente real — prévia é tela, e tela com nome de paciente vira print no grupo da família.
 

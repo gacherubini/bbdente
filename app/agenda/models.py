@@ -255,6 +255,12 @@ class ConfiguracaoClinica(Base):
     lembrete_ativo: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false"
     )
+    # COLUNA MORTA desde 27/08/2026: nao existe mais "hora do disparo". Cada
+    # lembrete vence na hora da consulta menos a antecedencia, e quem faz isso
+    # acontecer e `agenda/relogio.py`. Nenhum codigo le nem grava esta coluna.
+    # Ela sai num deploy SEGUINTE, e nao neste: o `release_command` do Fly roda o
+    # Alembic ANTES de trocar o codigo, entao derrubar a coluna junto quebraria o
+    # app antigo, que ainda esta atendendo (esta em `docs/OPERACAO.md`).
     lembrete_hora: Mapped[time] = mapped_column(Time, server_default="18:00")
     lembrete_horas_antes: Mapped[int] = mapped_column(
         SmallInteger, default=24, server_default="24"

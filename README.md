@@ -34,9 +34,13 @@ extrato do Dentalis presente, e esse arquivo nunca entra no repositório.
 
 A chave geral (`configuracao_clinica.lembrete_ativo`) nasce `false`, e quem "envia" é um
 provedor de mentira que registra o que enviaria. **É preciso desfazer os dois para uma
-mensagem sair.** O que falta para ligar de verdade é um chip novo — nunca o número da
-clínica — e a conexão por QR code. O porquê de cada condição está em
-[`docs/OPERACAO.md`](docs/OPERACAO.md).
+mensagem sair.** O que falta para ligar de verdade é o provedor real (Evolution API) e a
+conexão por QR code — por isso a tela de Configurações ainda diz "nenhum WhatsApp
+conectado" em vez de mostrar um QR.
+
+O relógio já roda: `app/agenda/relogio.py` bate de 15 em 15 minutos e avisa **cada
+paciente na hora dela** — 24 horas antes da consulta dela, não numa leva diária. O
+porquê de cada condição está em [`docs/OPERACAO.md`](docs/OPERACAO.md).
 
 ## Stack
 

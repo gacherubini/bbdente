@@ -8,7 +8,7 @@ paciente e é exatamente o padrão que a detecção do WhatsApp procura.
 Nada aqui toca a rede: o provedor é de mentira e registra o que enviaria.
 """
 
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
 
@@ -18,9 +18,11 @@ from app.agenda.whatsapp.fake import ProvedorFake
 from app.auth.models import Auditoria, Clinica, Usuario
 from app.pacientes import service as pacientes
 
-# A consulta é amanhã às 14h; o disparo roda hoje às 18h.
+# A consulta é amanhã às 14h, e o relógio bate exatamente no vencimento dela:
+# 24 horas antes, às 14h de hoje. Não existe mais "a hora do disparo" — cada
+# lembrete tem a sua, e é a hora da consulta no dia anterior.
 CONSULTA = date(2026, 9, 1)
-AGORA = datetime(2026, 8, 31, 18, 0)
+AGORA = datetime(2026, 8, 31, 14, 0)
 
 
 @pytest.fixture
@@ -207,8 +209,12 @@ def test_avulso_que_recusou_nao_recebe(sessao, cenario):
 # --- tempo -------------------------------------------------------------------
 
 def test_consulta_de_hoje_a_nove_horas_sai_dizendo_hoje(sessao, cenario):
-    """A máquina não acordou ontem e o processo só rodou às 5h da manhã. Um
-    lembrete atrasado que diz a verdade ainda ajuda."""
+    """O app ficou fora do ar e o relógio só voltou a bater às 5h da manhã.
+
+    Atraso NOSSO não descarta lembrete: o horário foi marcado com folga, e um
+    lembrete atrasado que diz a verdade ainda ajuda. Quem é descartado é o
+    horário marcado depois do vencimento — o teste `marcado_em_cima` abaixo.
+    """
     paciente = _paciente(sessao, cenario)
     _marcar(sessao, cenario, paciente_id=paciente.id, dia=CONSULTA, inicio=time(14, 0))
 
@@ -286,9 +292,11 @@ def test_falha_do_provedor_nao_reenvia_sozinha(sessao, cenario):
 
 def test_uma_falha_no_meio_da_fila_nao_impede_as_seguintes(sessao, cenario):
     """Uma paciente com número ruim não pode impedir as outras de receberem."""
+    # As tres na MESMA hora de proposito: e assim que tres lembretes vencem na
+    # mesma batida e formam fila. Horas diferentes virariam batidas diferentes.
     for i in range(3):
         paciente = _paciente(sessao, cenario, nome=f"PACIENTE {i}")
-        _marcar(sessao, cenario, paciente_id=paciente.id, inicio=time(14 + i, 0))
+        _marcar(sessao, cenario, paciente_id=paciente.id, inicio=time(14, 0))
     provedor = ProvedorFake(falhar_na=2)
 
     _rodar(sessao, cenario, provedor=provedor)
@@ -332,7 +340,7 @@ def test_o_teto_diario_segura_o_excesso(sessao, cenario):
     sessao.flush()
     for i in range(4):
         paciente = _paciente(sessao, cenario, nome=f"PACIENTE {i}")
-        _marcar(sessao, cenario, paciente_id=paciente.id, inicio=time(9 + i, 0))
+        _marcar(sessao, cenario, paciente_id=paciente.id, inicio=time(14, 0))
 
     provedor, _ = _rodar(sessao, cenario)
 
@@ -433,3 +441,212 @@ def test_a_mensagem_nunca_leva_a_anotacao_do_horario(sessao, cenario):
 
     for vazamento in ("canal", "36", "extração", "1.200"):
         assert vazamento not in texto
+
+
+# --- cada lembrete tem a sua hora --------------------------------------------
+#
+# O modelo antigo era uma leva por dia: às 18h saía tudo que coubesse nas
+# próximas 24 horas. Quem tinha consulta às 22h recebia 28 horas antes, e quem
+# tinha às 8h recebia 14 horas antes — ninguém recebia as 24 horas prometidas.
+# Agora o vencimento é por consulta: consulta − antecedência, e o relógio bate
+# de 15 em 15 minutos até passar por ele.
+
+
+def _marcado_em(sessao, agendamento, momento):
+    """Reescreve quando o horário foi marcado. É `server_default=now()` no banco,
+    então só dá para testar marcação tardia mexendo aqui."""
+    agendamento.criado_em = momento
+    sessao.flush()
+    return agendamento
+
+
+def test_consulta_das_21h_nao_sai_na_batida_das_18h(sessao, cenario):
+    """O defeito que motivou a mudança, escrito como teste.
+
+    Às 18h ela nem é candidata: faltam 27 horas, e a janela da reserva é a
+    antecedência. É a própria janela que faz o horário — o lembrete nasce na
+    batida em que vence, e não antes.
+    """
+    paciente = _paciente(sessao, cenario)
+    _marcar(sessao, cenario, paciente_id=paciente.id, inicio=time(21, 0))
+
+    provedor, _ = _rodar(sessao, cenario, agora=datetime(2026, 8, 31, 18, 0))
+
+    assert provedor.enviadas == []
+    assert sessao.query(Lembrete).count() == 0
+
+
+def test_consulta_das_21h_sai_na_batida_das_21h(sessao, cenario):
+    paciente = _paciente(sessao, cenario)
+    _marcar(sessao, cenario, paciente_id=paciente.id, inicio=time(21, 0))
+
+    _rodar(sessao, cenario, agora=datetime(2026, 8, 31, 18, 0))
+    provedor, _ = _rodar(sessao, cenario, agora=datetime(2026, 8, 31, 21, 0))
+
+    assert len(provedor.enviadas) == 1
+    assert "21:00" in provedor.enviadas[0][1]
+
+
+def test_duas_consultas_do_mesmo_dia_saem_em_batidas_diferentes(sessao, cenario):
+    """A da manhã e a da noite não viajam juntas: cada uma tem o seu vencimento."""
+    cedo = _paciente(sessao, cenario, nome="CEDO", telefone="51999990001")
+    tarde = _paciente(sessao, cenario, nome="TARDE", telefone="51999990002")
+    _marcar(sessao, cenario, paciente_id=cedo.id, inicio=time(8, 0))
+    _marcar(sessao, cenario, paciente_id=tarde.id, inicio=time(19, 0))
+
+    provedor = ProvedorFake()
+    _rodar(sessao, cenario, agora=datetime(2026, 8, 31, 8, 0), provedor=provedor)
+    assert [numero for numero, _ in provedor.enviadas] == ["5551999990001"]
+
+    _rodar(sessao, cenario, agora=datetime(2026, 8, 31, 19, 0), provedor=provedor)
+    assert [numero for numero, _ in provedor.enviadas] == [
+        "5551999990001",
+        "5551999990002",
+    ]
+
+
+def test_o_lembrete_guarda_a_hora_em_que_vence(sessao, cenario):
+    paciente = _paciente(sessao, cenario)
+    _marcar(sessao, cenario, paciente_id=paciente.id, inicio=time(21, 0))
+
+    lembretes.reservar(
+        sessao, clinica_id=cenario["clinica"].id, agora=datetime(2026, 8, 31, 21, 0)
+    )
+
+    # Vai e volta pelo `timestamptz` do Postgres, que guarda em UTC: se a
+    # conversão errar, a hora gravada volta três horas fora do lugar.
+    lembrete = sessao.query(Lembrete).one()
+    assert lembretes.parede(lembrete.agendado_para) == datetime(2026, 8, 31, 21, 0)
+
+
+def test_antecedencia_diferente_de_24h_muda_o_vencimento(sessao, cenario):
+    """A antecedência é o único controle do horário agora — e ela vale por
+    lembrete, não por leva."""
+    cenario["configuracao"].lembrete_horas_antes = 48
+    sessao.flush()
+    paciente = _paciente(sessao, cenario)
+    _marcar(sessao, cenario, paciente_id=paciente.id, inicio=time(14, 0))
+
+    provedor, _ = _rodar(sessao, cenario, agora=datetime(2026, 8, 30, 14, 0))
+
+    assert len(provedor.enviadas) == 1
+
+
+# --- marcado em cima da hora --------------------------------------------------
+
+
+def test_marcado_depois_do_vencimento_nao_recebe(sessao, cenario):
+    """Marcaram às 12h de hoje uma consulta para as 9h de amanhã: 21 horas de
+    antecedência, e o vencimento das 24h já tinha passado às 9h da manhã.
+
+    Não manda. E o motivo vai para a tela, que é o que permite alguém ligar.
+    """
+    paciente = _paciente(sessao, cenario)
+    agendamento = _marcar(sessao, cenario, paciente_id=paciente.id, inicio=time(9, 0))
+    _marcado_em(sessao, agendamento, datetime(2026, 8, 31, 12, 0).astimezone())
+
+    provedor, _ = _rodar(sessao, cenario)
+
+    assert provedor.enviadas == []
+    lembrete = sessao.query(Lembrete).one()
+    assert lembrete.situacao is SituacaoLembrete.DESCARTADO
+    assert lembrete.motivo == "marcado_em_cima"
+
+
+def test_atraso_do_proprio_relogio_nao_vira_marcado_em_cima(sessao, cenario):
+    """A distinção que faz a tela não mentir.
+
+    Mesma consulta das 9h com o vencimento vencido há 5 horas — mas desta vez o
+    horário foi marcado semana passada. Quem atrasou fomos nós, não ela: manda,
+    e não vai para a tela como se ela tivesse marcado em cima da hora.
+    """
+    paciente = _paciente(sessao, cenario)
+    agendamento = _marcar(sessao, cenario, paciente_id=paciente.id, inicio=time(9, 0))
+    _marcado_em(sessao, agendamento, datetime(2026, 8, 24, 10, 0).astimezone())
+
+    provedor, _ = _rodar(sessao, cenario)
+
+    assert len(provedor.enviadas) == 1
+
+
+def test_criado_em_vem_do_banco_em_utc_e_nao_pode_virar_descarte(sessao, cenario):
+    """UTC−3, o erro que seria silencioso.
+
+    O Postgres devolve `timestamptz` em UTC; o consultório vive três horas
+    atrás. Marcar às 7h da manhã do dia 31 é `10:00+00:00` no banco. Se alguém
+    comparar sem converter, 10:00 passa a ser "depois" do vencimento das 8h e a
+    paciente é descartada por um erro de fuso — sem exceção, sem log, sem nada.
+    """
+    paciente = _paciente(sessao, cenario)
+    agendamento = _marcar(sessao, cenario, paciente_id=paciente.id, inicio=time(8, 0))
+    # 10:00 UTC == 07:00 na parede da clínica: uma hora ANTES do vencimento.
+    _marcado_em(sessao, agendamento, datetime(2026, 8, 31, 10, 0, tzinfo=UTC))
+
+    provedor, _ = _rodar(sessao, cenario, agora=datetime(2026, 8, 31, 8, 0))
+
+    assert len(provedor.enviadas) == 1
+
+
+def test_parede_converte_utc_para_a_hora_do_consultorio(sessao):
+    """A função sozinha, sem banco: é ela que carrega a regra de fuso."""
+    assert lembretes.parede(datetime(2026, 8, 31, 10, 0, tzinfo=UTC)) == datetime(
+        2026, 8, 31, 7, 0
+    )
+
+
+# --- remarcar -----------------------------------------------------------------
+
+
+def test_remarcar_para_depois_adia_o_envio(sessao, cenario):
+    """O vencimento é recalculado do horário vivo, nunca lido do que ficou
+    gravado: senão a mensagem sai cinco dias antes, na hora do horário velho."""
+    paciente = _paciente(sessao, cenario)
+    agendamento = _marcar(sessao, cenario, paciente_id=paciente.id, inicio=time(14, 0))
+    lembretes.reservar(sessao, clinica_id=cenario["clinica"].id, agora=AGORA)
+
+    service.remarcar(
+        sessao,
+        clinica_id=cenario["clinica"].id,
+        usuario_id=cenario["usuario"].id,
+        agendamento_id=agendamento.id,
+        dia=CONSULTA + timedelta(days=5),
+        inicio=time(14, 0),
+        duracao_min=30,
+    )
+
+    provedor = ProvedorFake()
+    lembretes.despachar(
+        sessao,
+        clinica_id=cenario["clinica"].id,
+        agora=AGORA,
+        provedor=provedor,
+        pausar=lambda: None,
+    )
+
+    assert provedor.enviadas == []
+    lembrete = sessao.query(Lembrete).one()
+    assert lembrete.situacao is SituacaoLembrete.PENDENTE
+    # E a fila se corrige sozinha, sem ninguém mexer em `remarcar`.
+    assert lembretes.parede(lembrete.agendado_para) == datetime(2026, 9, 5, 14, 0)
+
+
+def test_remarcado_para_perto_ainda_avisa(sessao, cenario):
+    """Remarcar não é marcar em cima da hora: quem já estava na agenda com folga
+    teve o horário MUDADO, e é justamente quem mais precisa ser avisada."""
+    paciente = _paciente(sessao, cenario)
+    agendamento = _marcar(
+        sessao, cenario, paciente_id=paciente.id, dia=CONSULTA + timedelta(days=5)
+    )
+    service.remarcar(
+        sessao,
+        clinica_id=cenario["clinica"].id,
+        usuario_id=cenario["usuario"].id,
+        agendamento_id=agendamento.id,
+        dia=CONSULTA,
+        inicio=time(14, 0),
+        duracao_min=30,
+    )
+
+    provedor, _ = _rodar(sessao, cenario, agora=datetime(2026, 8, 31, 20, 0))
+
+    assert len(provedor.enviadas) == 1

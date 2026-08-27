@@ -1,9 +1,12 @@
+import asyncio
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.agenda import configuracoes as agenda_configuracoes
+from app.agenda import relogio as agenda_relogio
 from app.agenda import rotas as agenda_rotas
 from app.agenda import tarefas as agenda_tarefas
 from app.auth import rotas as auth_rotas
@@ -16,8 +19,32 @@ from app.pacientes import api as pacientes_api
 from app.pacientes import rotas as pacientes_rotas
 
 
-def criar_app() -> FastAPI:
-    app = FastAPI(title="BDDente", docs_url=None, redoc_url=None)
+@asynccontextmanager
+async def _com_relogio(app: FastAPI):
+    """Sobe o relogio dos lembretes junto do app e o derruba junto."""
+    tarefa = asyncio.create_task(agenda_relogio.acompanhar())
+    try:
+        yield
+    finally:
+        tarefa.cancel()
+        with suppress(asyncio.CancelledError):
+            await tarefa
+
+
+def criar_app(*, com_relogio: bool = False) -> FastAPI:
+    """O app. O relogio nasce DESLIGADO de proposito.
+
+    Teste que monta o app monta o laco junto, e ele iria falar com o banco de
+    verdade por fora da transacao que o teste reverte — mandando mensagem de
+    mentira sobre paciente de mentira em horario nenhum. Quem liga o relogio e o
+    `app` la embaixo, que e o que o uvicorn carrega em producao.
+    """
+    app = FastAPI(
+        title="BDDente",
+        docs_url=None,
+        redoc_url=None,
+        lifespan=_com_relogio if com_relogio else None,
+    )
     app.mount(
         "/static",
         StaticFiles(directory=str(Path(__file__).parent / "static")),
@@ -48,4 +75,4 @@ def criar_app() -> FastAPI:
     return app
 
 
-app = criar_app()
+app = criar_app(com_relogio=True)

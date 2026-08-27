@@ -36,10 +36,14 @@ Para subir à mão, quando quiser:
 | App | `shared-cpu-1x`, 512 MB, desliga quando ocioso | ~US$ 1/mês |
 | Postgres | `shared-cpu-1x`, 256 MB, volume de 3 GB, um nó só | ~US$ 2,50/mês |
 
-A máquina do app tem `min_machines_running = 0`: dorme quando ninguém está usando e
-acorda na primeira requisição. Isso custa alguns segundos na primeira tela do dia e
-economiza as 20 horas diárias em que o consultório está fechado. Se um dia a espera
-incomodar, troque para `1` no `fly.toml` — é a única mudança necessária.
+A máquina do app tem `min_machines_running = 1`: **ela não dorme mais**, e isso mudou
+em 27/08/2026. O relógio dos lembretes (`app/agenda/relogio.py`) bate de 15 em 15
+minutos para avisar cada paciente na hora dela — máquina dormindo é relógio parado. O
+Evolution/WhatsApp vai exigir o mesmo socket vivo. **Custo: ~US$ 3 a 5/mês a mais**, e
+ele é do pacote "lembrete por WhatsApp", não do relógio sozinho.
+
+Se um dia os lembretes forem desligados de vez, voltar para `0` devolve a economia — e
+é a única mudança necessária.
 
 **Um nó de Postgres, não dois.** Réplica dobraria a conta para proteger contra a queda
 de uma máquina; o que protege o prontuário de verdade é o backup, e ele é mais barato.
@@ -146,9 +150,16 @@ conexão que não existe.
 A decisão foi por **Baileys** (via Evolution API), e não pela API oficial. Ela vem com
 quatro condições que o plano trata como obrigatórias — a primeira é a que mais importa:
 
-1. **Chip novo, nunca o número da clínica.** Se o número cair, a clínica perde um robô,
-   não a porta da frente de 30 anos que está na fachada, no Google e no WhatsApp de
-   ~500 pacientes. Banimento em API não oficial é permanente e sem apelação.
+1. **O número é o pessoal da mãe do dono do projeto, já usado no dia a dia** — decisão
+   dele, tomada em 27/08/2026, revertendo o "chip novo" do plano original. E a troca é
+   defensável: a detecção do WhatsApp pesa razão de resposta, distância no grafo de
+   contatos e ritmo robótico, então um número recém-criado que começa a mandar
+   mensagem parecida para desconhecidos é o perfil exato que ela procura — enquanto um
+   número com anos de conversa real, no qual várias pacientes já são contato, é o
+   oposto. **A probabilidade de bloqueio cai; o prejuízo, se acontecer, sobe**, porque
+   o que se perde é o WhatsApp pessoal dela, e banimento aqui é permanente e sem
+   apelação. As condições 2 e 3 deixam de ser recomendação e passam a ser
+   inegociáveis por causa disso.
 2. **Volume e ritmo humanos**: teto diário e pausa aleatória de 20 a 90 segundos entre
    envios, já no código. A detecção pesa razão de resposta, distância no grafo de
    contatos e ritmo robótico — e um lembrete para paciente conhecida, em volume baixo e
@@ -159,15 +170,45 @@ quatro condições que o plano trata como obrigatórias — a primeira é a que 
    por variável de ambiente. Migrar depois de um banimento é trocar um segredo e
    reiniciar, não reescrever a funcionalidade.
 
-O que muda no `fly.toml` quando a Evolution entrar: `min_machines_running = 1`. Manter
-um socket vivo custa **+US$ 3 a 5/mês** sobre a conta atual, e esse custo existe *por
-causa* da escolha não oficial — entra na conta. Para comparação, a API oficial cobra da
+O `fly.toml` já está com `min_machines_running = 1` desde 27/08/2026 (o relógio
+precisava dele antes da Evolution). Manter a máquina e um socket vivos custa **+US$ 3 a
+5/mês** sobre a conta original, e esse custo existe *por causa* da escolha não
+oficial — entra na conta. Para comparação, a API oficial cobra da
 ordem de US$ 0,008 por mensagem *utility* no Brasil, uns US$ 0,80/mês com 100 consultas,
 e deixaria a máquina continuar dormindo.
 
-### O gatilho do horário
+### Quem dispara, e quando
 
-O disparo é um `POST`, não um `GET` — para que um crawler não dispare a agenda inteira:
+**Cada paciente é avisada na hora dela.** O vencimento é `hora da consulta menos 24 h`
+(a antecedência é ajustável na tela), e um relógio dentro do próprio app bate de
+**15 em 15 minutos** até passar por ele. Consulta das 21h é avisada entre 21h00 e
+21h15 da véspera; a das 8h, às 8h da véspera. **Não existe "hora do disparo".**
+
+Isso mudou em 27/08/2026. Antes era uma leva por dia às 18h, e ninguém recebia as 24
+horas prometidas: quem tinha consulta às 22h era avisado 28 horas antes, e quem tinha
+às 8h, 14 horas antes.
+
+O relógio mora dentro do app de propósito. Ele precisa bater o dia inteiro, e o
+Evolution já obriga a máquina a ficar de pé; com ela acordada de qualquer forma, um
+serviço de cron de terceiro seria mais uma conta para manter, mais um segredo e mais
+uma coisa para quebrar em silêncio. **Ele nunca levanta exceção**: banco reiniciando,
+deploy no meio, rede caindo — erra a batida, registra no log e tenta de novo em quinze
+minutos.
+
+**Quem marcou depois da hora de avisar não recebe.** Marcou às 12h de hoje para as 9h
+de amanhã? O vencimento passou às 9h da manhã, e não sai mensagem. Aparece na tela de
+Configurações como "marcado depois da hora de avisar", para alguém ligar. Atraso do
+próprio sistema (uma queda do app) **não** conta como isso: a conta é com a hora em que
+o horário foi marcado, não com o relógio de agora.
+
+#### O gatilho de emergência
+
+Para forçar uma passada sem esperar a próxima batida, há o botão **"Enviar agora os que
+já venceram"** na tela de Configurações — e ele não adianta lembrete nenhum: manda o
+que já venceu, e o que ainda não venceu continua esperando a hora da paciente.
+
+Por fora, o mesmo caminho tem um endereço. É um `POST`, não um `GET` — para que um
+crawler não dispare a agenda inteira:
 
     POST /tarefas/lembretes
     X-Tarefa-Token: <o segredo>
@@ -180,19 +221,20 @@ Segredo, uma vez:
 Ambiente sem `TAREFAS_TOKEN` também responde 404: não pode haver uma porta que qualquer
 um abre mandando o cabeçalho vazio.
 
-Quem chama, hoje, é um serviço de cron externo — **cron-job.org ou EasyCron, no plano
-gratuito**, uma chamada por dia às 18h. Duas armadilhas documentadas em vez de
-descobertas:
-
-- **GitHub Actions agendado não serve aqui.** O GitHub desliga workflow agendado depois
-  de 60 dias sem commit no repositório, e este é um app de clínica: vai ficar meses
-  parado. Fica como alternativa, nunca como primeira opção.
-- **Cron que morre morre em silêncio.** A contramedida é de graça e já está na tela:
-  `/configuracoes` mostra "último disparo" e vira faixa vermelha depois de 48h. É a
-  única coisa que vai perceber que parou.
-
 O endpoint é idempotente por construção (`UNIQUE (agendamento_id, tipo)`), então pode
-ser chamado dez vezes seguidas — que é exatamente o que um cron mal configurado faz.
+ser chamado dez vezes seguidas sem mandar nada duas vezes.
+
+**Não é preciso contratar serviço de cron nenhum**, e vale registrar por que a ideia
+foi abandonada em 27/08/2026: o relógio mora dentro do app agora. Se um dia alguém
+quiser um monitor externo assim mesmo, fica a armadilha já mapeada — **GitHub Actions
+agendado não serve**, porque o GitHub desliga workflow agendado depois de 60 dias sem
+commit no repositório, e este é um app de clínica: vai ficar meses parado.
+
+**Como se percebe que parou.** O relógio está dentro do app, então "o relógio parou" é
+a mesma coisa que "o app caiu" — e disso o healthcheck do Fly (`/saude`, de 30 em 30
+segundos) já cuida. A tela de Configurações mostra "última mensagem enviada" como
+informação; ela **não** vira alarme vermelho, porque um feriado prolongado sem consulta
+deixaria a faixa vermelha à toa, e alarme que grita sem motivo se aprende a ignorar.
 
 ### A chave geral, e o que ela faz com a fila
 
@@ -229,6 +271,14 @@ Vale a partir do dia em que houver um provedor de verdade.
 - Lembrar que quase ninguém recebe no começo: `paciente.aceita_whatsapp` nasce nulo nos
   5.559 cadastros migrados, e nulo não recebe. A base de autorização cresce consulta a
   consulta, pelo botão "perguntar" no cartão da agenda.
+
+### Como uma paciente pede para parar de receber
+
+**Alguém clica no botão da ficha dela**, que grava "pediu para não receber" com
+auditoria dos dois lados. É o único caminho, e é de propósito: **não existe responder
+"PARAR"**, porque ninguém lê as respostas. Por isso a mensagem também nunca oferece
+isso — ela pede que a paciente avise na recepção ou ligue. Prometer um canal que não
+existe é pior que não oferecer canal nenhum.
 
 ## Requisitos que o provedor precisa cumprir
 

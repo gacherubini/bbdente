@@ -22,13 +22,14 @@ primary_region = "iad"  # Ashburn, Virginia — escolhido por custo
 [http_service]
   internal_port = 8080
   force_https = true
-  # A maquina desliga quando ninguem esta usando e volta sozinha na primeira
-  # requisicao. Um consultorio usa o sistema algumas horas por dia: manter a
-  # maquina ligada 24h custa varias vezes mais e nao serve para nada de madrugada.
-  # O preco e alguns segundos na primeira tela do dia.
-  auto_stop_machines = "suspend"
+  # A maquina fica de pe 24h, e isso e uma MUDANCA: ela dormia quando ninguem
+  # estava usando. O relogio dos lembretes (`app/agenda/relogio.py`) bate de 15
+  # em 15 minutos para que cada paciente seja avisada na hora dela — maquina
+  # dormindo e relogio parado. O Evolution/WhatsApp vai exigir o mesmo, entao o
+  # custo (~US$ 3 a 5/mes) e do pacote inteiro, nao so do relogio.
+  auto_stop_machines = "off"
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
 
   [[http_service.checks]]
     grace_period = "10s"

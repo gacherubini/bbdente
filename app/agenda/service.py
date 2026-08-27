@@ -622,7 +622,6 @@ def salvar_configuracao(
     clinica_id: int,
     usuario_id: int | None,
     ativo: bool,
-    hora: time,
     horas_antes: int,
     teto_diario: int,
     endereco: str | None,
@@ -637,7 +636,11 @@ def salvar_configuracao(
     antes = _retrato_da_configuracao(configuracao)
 
     configuracao.lembrete_ativo = ativo
-    configuracao.lembrete_hora = hora
+    # `lembrete_hora` nao e mais gravada: nao existe hora do disparo. Cada
+    # lembrete vence na hora da consulta menos a antecedencia. A coluna ainda
+    # esta no banco e morre num deploy seguinte — derrubar coluna no mesmo
+    # deploy quebra o codigo antigo, que continua atendendo enquanto o novo sobe
+    # (o `release_command` roda ANTES da troca; esta em `docs/OPERACAO.md`).
     configuracao.lembrete_horas_antes = horas_antes
     configuracao.lembrete_teto_diario = teto_diario
     configuracao.endereco = _limpo(endereco)
@@ -661,7 +664,6 @@ def salvar_configuracao(
 def _retrato_da_configuracao(configuracao: ConfiguracaoClinica) -> dict:
     return {
         "lembrete_ativo": configuracao.lembrete_ativo,
-        "lembrete_hora": configuracao.lembrete_hora.isoformat(),
         "lembrete_horas_antes": configuracao.lembrete_horas_antes,
         "lembrete_teto_diario": configuracao.lembrete_teto_diario,
         "endereco": configuracao.endereco,

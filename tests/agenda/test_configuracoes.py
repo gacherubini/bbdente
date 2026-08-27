@@ -5,7 +5,7 @@ problema**: quando o WhatsApp cai, o caminho é a agenda mostrar o aviso e levar
 direto lá. O menu lateral é a lista das coisas que ela faz com paciente.
 """
 
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -45,15 +45,25 @@ def cliente(sessao, cenario):
 
 
 def _horario(sessao, cenario, **kwargs):
+    """Um horário daqui a 20 horas, marcado semana passada.
+
+    As duas metades importam. Daqui a 20 horas: já venceu, então o "Enviar
+    agora" tem o que mandar. Marcado semana passada: é o caso normal, e não o
+    horário encaixado depois da hora de avisar — esse não recebe, e tem teste
+    próprio em `test_lembretes.py`.
+    """
     alvo = datetime.now() + timedelta(hours=20)
     dados = {"dia": alvo.date(), "inicio": alvo.time().replace(second=0, microsecond=0)}
     dados.update(kwargs)
-    return service.marcar(
+    agendamento = service.marcar(
         sessao,
         clinica_id=cenario["clinica"].id,
         usuario_id=cenario["usuario"].id,
         **dados,
     )
+    agendamento.criado_em = (datetime.now() - timedelta(days=7)).astimezone()
+    sessao.flush()
+    return agendamento
 
 
 def _paciente(sessao, cenario, *, nome="MARIA SILVA", telefone="51999998888", aceita=True):
@@ -116,7 +126,7 @@ def test_a_chave_nasce_desligada_e_a_tela_diz_isso(cliente):
 def test_ligar_a_chave_grava_e_audita(cliente, sessao, cenario):
     resposta = cliente.post(
         "/configuracoes",
-        data={"lembrete_ativo": "1", "lembrete_hora": "18:00",
+        data={"lembrete_ativo": "1",
               "lembrete_horas_antes": "24", "lembrete_teto_diario": "20",
               "endereco": "Rua X, 100", "telefone_clinica": "(51) 3333-3333"},
     )
@@ -247,12 +257,18 @@ def test_nenhum_segredo_aparece_na_tela(cliente, monkeypatch):
     assert "outro-segredo" not in pagina
 
 
-def test_hora_invalida_nao_derruba_a_tela(cliente, cenario):
+def test_antecedencia_impossivel_nao_derruba_a_configuracao(cliente, cenario):
+    """Ela digita, e digitar errado não pode custar a configuração inteira.
+
+    Não há mais "hora do disparo" para validar: a antecedência é o único
+    controle de tempo da tela, e um valor fora da régua volta ao padrão em vez
+    de gravar um lembrete que nunca venceria.
+    """
     resposta = cliente.post(
         "/configuracoes",
-        data={"lembrete_hora": "99:99", "lembrete_horas_antes": "24",
+        data={"lembrete_ativo": "1", "lembrete_horas_antes": "999999",
               "lembrete_teto_diario": "20"},
     )
 
-    assert resposta.status_code == 200
-    assert cenario["configuracao"].lembrete_hora == time(18, 0)
+    assert resposta.status_code == 303
+    assert cenario["configuracao"].lembrete_horas_antes == 24

@@ -7,16 +7,16 @@ a agenda mostrar o aviso e levar direto para ca. Sendo o aviso o caminho, o item
 de menu seria redundante e so custaria atencao dos sete que importam.
 """
 
-from datetime import date, datetime, time
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.agenda.lembretes import (
-    despachar,
+    parede,
     previsao,
-    reservar,
+    rodar,
     ultimo_disparo,
     ultimos_envios,
 )
@@ -60,20 +60,12 @@ EXEMPLO = ContextoDaMensagem(
 
 MOTIVOS = {
     "sem_permissao": "sem permissão de WhatsApp",
+    "marcado_em_cima": "marcado depois da hora de avisar",
     "sem_numero": "sem número aproveitável",
     "avulso_recusou": "pediu para não receber",
     "numero_suspeito": "número suspeito",
     "teto_diario": "passou do teto do dia",
 }
-
-
-def _hora(bruto: str) -> time | None:
-    """A hora digitada, ou `None`. Devolver o padrao aqui esconderia o erro dela:
-    ela digitaria 99:99, veria 18:00 gravado e nunca saberia por que."""
-    try:
-        return time.fromisoformat(bruto)
-    except ValueError:
-        return None
 
 
 def _inteiro(bruto: str, padrao: int, minimo: int, maximo: int) -> int:
@@ -126,11 +118,12 @@ def _tela(
             "vao_receber": [linha for linha in linhas if linha.recebe],
             "nao_recebem": [linha for linha in linhas if not linha.recebe],
             "motivos": MOTIVOS,
-            "ultimo_disparo": ultimo,
-            # Faixa vermelha depois de 48h sem disparo: e o monitor do cron, e e
-            # a unica coisa que vai perceber que ele morreu.
-            "disparo_velho": ultimo is not None
-            and (datetime.now(ultimo.tzinfo) - ultimo).total_seconds() > 48 * 3600,
+            # So informacao. A faixa vermelha de "48h sem disparo" saiu junto
+            # com o cron externo: o relogio mora dentro do app agora, entao
+            # "o relogio parou" e a mesma coisa que "o app caiu" — e disso o
+            # healthcheck do Fly ja cuida. Mantida, ela ficaria vermelha todo
+            # feriado prolongado, e alarme que grita a toa se aprende a ignorar.
+            "ultimo_envio": parede(ultimo) if ultimo else None,
             "envios": ultimos_envios(sessao, clinica_id=clinica_id),
             "hoje": date.today(),
         },
@@ -152,7 +145,6 @@ def tela(
 def gravar(
     request: Request,
     lembrete_ativo: str = Form(""),
-    lembrete_hora: str = Form(""),
     lembrete_horas_antes: str = Form(""),
     lembrete_teto_diario: str = Form(""),
     endereco: str = Form(""),
@@ -161,23 +153,17 @@ def gravar(
     sessao: Session = Depends(obter_sessao),
     provedor: Provedor = Depends(provedor_atual),
 ):
-    """A chave geral e os ajustes do disparo.
+    """A chave geral e os ajustes do lembrete.
 
-    Hora invalida nao derruba a tela: volta o formulario com o que ja estava
-    gravado. Ela digita, e digitar errado nao pode custar a configuracao inteira.
+    Nao ha mais "hora do disparo" para gravar: a hora de cada mensagem e a hora
+    da consulta da paciente, menos a antecedencia. A antecedencia virou o unico
+    controle de tempo da tela.
     """
-    escolhida = _hora(lembrete_hora)
-    if escolhida is None:
-        return _tela(
-            request, sessao, usuario, provedor, erro="Hora inválida — use 18:00."
-        )
-
     salvar_configuracao(
         sessao,
         clinica_id=usuario.clinica_id,
         usuario_id=usuario.id,
         ativo=lembrete_ativo == "1",
-        hora=escolhida,
         horas_antes=_inteiro(lembrete_horas_antes, 24, 1, 168),
         teto_diario=_inteiro(lembrete_teto_diario, 20, 1, 200),
         endereco=endereco,
@@ -217,14 +203,20 @@ def enviar_agora(
     sessao: Session = Depends(obter_sessao),
     provedor: Provedor = Depends(provedor_atual),
 ):
-    """O cinto de seguranca de quando o cron falha.
+    """O cinto de seguranca de quando o relogio falha.
 
-    Chama exatamente o mesmo `reservar`/`despachar` do disparo automatico, e e
-    idempotente por construcao — clicar duas vezes nao manda duas vezes. E
-    justamente por isso que este botao pode existir sem medo.
+    Chama exatamente o mesmo `rodar()` do relogio automatico — a mesma funcao,
+    nao uma copia parecida — e e idempotente por construcao: clicar duas vezes
+    nao manda duas vezes. E justamente por isso que este botao pode existir sem
+    medo.
+
+    Ele NAO adianta lembrete: manda o que ja venceu, e o que ainda nao venceu
+    continua esperando a hora da paciente.
     """
-    agora = datetime.now()
-    reservar(sessao, clinica_id=usuario.clinica_id, agora=agora)
-    sessao.commit()
-    despachar(sessao, clinica_id=usuario.clinica_id, agora=agora, provedor=provedor)
+    rodar(
+        sessao,
+        clinica_id=usuario.clinica_id,
+        agora=datetime.now(),
+        provedor=provedor,
+    )
     return RedirectResponse("/configuracoes", status_code=303)

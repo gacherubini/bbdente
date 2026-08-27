@@ -1,5 +1,11 @@
 """Reservar e despachar o lembrete da vespera.
 
+**Cada lembrete tem a SUA hora.** O vencimento e `consulta - antecedencia`, e
+`agenda/relogio.py` bate de 15 em 15 minutos ate passar por ele: consulta das 21h
+e avisada as 21h da vespera, a das 8h as 8h da vespera. Nao existe "hora do
+disparo" — existe a hora de cada paciente. E a janela da reserva e a propria
+antecedencia, entao um horario so vira candidato quando falta exatamente ela.
+
 Duas fases, e a ordem importa:
 
 1. **Reservar** — so banco, nenhuma rede. Decide quem recebe e quem nao, cria a
@@ -14,7 +20,9 @@ decidir. A garantia escolhida e **no maximo uma vez, nunca ao menos uma vez**:
 mandar duas vezes queima a paciente e e o padrao que a deteccao procura.
 
 `agora` entra por parametro e e RELOGIO DE PAREDE da clinica (§4 do plano):
-nenhuma funcao daqui chama `datetime.now()` por dentro.
+nenhuma funcao daqui chama `datetime.now()` por dentro. Hora que vem do BANCO e
+outra historia — as colunas sao `timestamptz` e voltam em UTC, enquanto a clinica
+vive em UTC-3. Toda leitura dessas passa por `parede()`; leia o porque la.
 """
 
 import random
@@ -65,11 +73,41 @@ class Resumo:
     expirados: int = 0
     falhados: int = 0
     cancelados: int = 0
+    # Reservados que ainda nao venceram. Numa batida qualquer este e o numero
+    # grande: a agenda inteira de amanha esta esperando a hora dela.
+    esperando: int = 0
 
 
 def _quando(agendamento: Agendamento) -> datetime:
     """O momento da consulta no relogio da parede da clinica."""
     return datetime.combine(agendamento.dia, agendamento.inicio)
+
+
+def parede(momento: datetime) -> datetime:
+    """Um instante vindo do banco, na hora do relogio da parede da clinica.
+
+    O Postgres devolve `timestamptz` no fuso da SESSAO dele, que no container e
+    UTC; o consultorio vive em UTC-3. Descartar o fuso sem converter empurra o
+    horario tres horas para a frente, e o estrago e silencioso: um horario
+    marcado com folga passa a parecer marcado DEPOIS do vencimento, e a paciente
+    simplesmente nao recebe — sem excecao, sem log, sem tela vermelha.
+
+    Momento ingenuo ja e hora de parede e volta como veio.
+    """
+    if momento.tzinfo is None:
+        return momento
+    return momento.astimezone().replace(tzinfo=None)
+
+
+def _vencimento(agendamento: Agendamento, horas_antes: int) -> datetime:
+    """Quando ESTE lembrete tem de sair: a hora da consulta, menos a antecedencia.
+
+    E sempre recalculado do agendamento vivo, nunca lido do que ficou gravado —
+    `remarcar` muda dia e hora na mesma linha (`agenda/service.py`), entao o
+    `agendado_para` de um lembrete ja reservado envelhece calado. Confiar nele
+    manda a mensagem na hora do horario velho.
+    """
+    return _quando(agendamento) - timedelta(hours=horas_antes)
 
 
 def _pausa_humana() -> None:
@@ -116,7 +154,15 @@ def reservar(sessao: Session, *, clinica_id: int, agora: datetime) -> Resumo:
     ja_reservados = _quantos_de_pe(sessao, [a.id for a in candidatos])
 
     for agendamento in candidatos:
+        vence = _vencimento(agendamento, configuracao.lembrete_horas_antes)
         numero, motivo = _destino(agendamento, contatos)
+        if motivo is None and parede(agendamento.criado_em) > vence:
+            # Marcado depois da propria hora de avisar: nao manda. A comparacao e
+            # com quando o HORARIO foi marcado, e nao com o relogio de agora, de
+            # proposito — se fosse com o relogio, uma queda do app de duas horas
+            # descartaria quem marcou com folga, e a tela diria "marcou em cima
+            # da hora", que seria mentira sobre a paciente.
+            motivo = "marcado_em_cima"
         if motivo is None and ja_reservados >= configuracao.lembrete_teto_diario:
             motivo = "teto_diario"
         criado = _criar(
@@ -124,8 +170,7 @@ def reservar(sessao: Session, *, clinica_id: int, agora: datetime) -> Resumo:
             agendamento=agendamento,
             numero=numero,
             motivo=motivo,
-            quando=_quando(agendamento)
-            - timedelta(hours=configuracao.lembrete_horas_antes),
+            quando=vence,
         )
         if criado is None:
             continue  # ja existia: a segunda execucao nao duplica
@@ -261,6 +306,19 @@ def despachar(
             resumo.cancelados += 1
             continue
 
+        # Cada lembrete tem a SUA hora, e ela e recalculada do horario vivo. Quem
+        # ainda nao venceu fica na fila esperando a batida dele: consulta das 21h
+        # sai as 21h da vespera, nao junto com a das 8h.
+        vence = _vencimento(agendamento, configuracao.lembrete_horas_antes)
+        if agora < vence:
+            if parede(lembrete.agendado_para) != vence:
+                # Remarcado para depois. A fila se conserta aqui, e por isso
+                # `remarcar()` nao precisa saber que lembrete existe.
+                lembrete.agendado_para = vence.astimezone()
+                sessao.commit()
+            resumo.esperando += 1
+            continue
+
         faltam = _quando(agendamento) - agora
         if faltam < timedelta(hours=HORAS_MINIMAS_DE_ANTECEDENCIA):
             _fechar(sessao, lembrete, SituacaoLembrete.EXPIRADO, "tarde_demais")
@@ -317,6 +375,37 @@ def despachar(
         sessao.commit()
 
     return resumo
+
+
+def rodar(
+    sessao: Session,
+    *,
+    clinica_id: int,
+    agora: datetime,
+    provedor: Provedor,
+    pausar=None,
+) -> Resumo:
+    """Uma passada inteira: reserva e despacha.
+
+    E o que o relogio faz a cada 15 minutos, o que o botao "Enviar agora" faz e o
+    que o endpoint do gatilho manual faz. Uma funcao so, de proposito: se os tres
+    caminhos fossem tres copias, um deles acabaria divergindo, e o modo que
+    divergisse seria justamente o de emergencia — o que so roda no dia ruim.
+    """
+    reserva = reservar(sessao, clinica_id=clinica_id, agora=agora)
+    sessao.commit()
+    envio = despachar(
+        sessao, clinica_id=clinica_id, agora=agora, provedor=provedor, pausar=pausar
+    )
+    return Resumo(
+        reservados=reserva.reservados,
+        descartados=reserva.descartados,
+        enviados=envio.enviados,
+        expirados=envio.expirados,
+        falhados=envio.falhados,
+        cancelados=envio.cancelados,
+        esperando=envio.esperando,
+    )
 
 
 def _texto(
@@ -382,6 +471,9 @@ class LinhaDaPrevisao:
     nome: str
     paciente_id: int | None
     hora: str
+    # A que horas a mensagem DELA sai. Nao existe mais uma hora do disparo para
+    # a tela anunciar: existe uma por paciente, e e esta.
+    sai_as: str
     recebe: bool
     motivo: str | None
 
@@ -418,13 +510,17 @@ def previsao(sessao: Session, *, clinica_id: int, agora: datetime) -> list[Linha
 
     linhas = []
     for agendamento in agendamentos:
+        vence = _vencimento(agendamento, configuracao.lembrete_horas_antes)
         _, motivo = _destino(agendamento, contatos)
+        if motivo is None and parede(agendamento.criado_em) > vence:
+            motivo = "marcado_em_cima"
         contato = contatos.get(agendamento.paciente_id)
         linhas.append(
             LinhaDaPrevisao(
                 nome=contato.nome if contato else (agendamento.nome_avulso or ""),
                 paciente_id=agendamento.paciente_id,
                 hora=agendamento.inicio.strftime("%H:%M"),
+                sai_as=vence.strftime("%d/%m às %H:%M"),
                 recebe=motivo is None,
                 motivo=motivo,
             )
@@ -445,8 +541,14 @@ def ultimos_envios(sessao: Session, *, clinica_id: int, limite: int = 50) -> lis
 
 
 def ultimo_disparo(sessao: Session, *, clinica_id: int) -> datetime | None:
-    """Quando saiu a ultima mensagem. E o monitor do cron, e e de graca: cron que
-    morre morre em silencio, e sem isto ninguem perceberia."""
+    """Quando saiu a ultima mensagem. So informacao, na tela.
+
+    Nao e mais alarme: o "faixa vermelha depois de 48h" existia para descobrir
+    que um cron de terceiro tinha morrido calado. O relogio mora dentro do app
+    agora, entao "o relogio parou" e a mesma coisa que "o app caiu", e disso o
+    healthcheck cuida. Como alarme, isto ficaria vermelho todo feriado
+    prolongado — e alarme que grita a toa se aprende a ignorar.
+    """
     return sessao.scalars(
         select(Lembrete.enviado_em)
         .where(
