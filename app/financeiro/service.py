@@ -45,6 +45,18 @@ class Resumo:
 
 
 @dataclass(frozen=True)
+class LinhaRecebimento:
+    parcela_id: int
+    paciente_id: int
+    paciente: str
+    valor: Decimal
+    quando: date
+    forma: str | None
+    observacao: str | None
+    pode_desfazer: bool
+
+
+@dataclass(frozen=True)
 class LinhaCobranca:
     parcela_id: int
     paciente_id: int
@@ -407,3 +419,180 @@ def quitar(
         },
     )
     return parcela
+
+
+def registrada_aqui(parcela: Parcela) -> bool:
+    """A parcela nasceu nesta aplicacao, e nao no Dentalis.
+
+    As 28.244 parcelas migradas tem `codigo_legado` preenchido e `criado_por`
+    nulo: ninguem daqui as digitou, elas sao historico. Exigir as duas coisas —
+    sem codigo legado E com autor conhecido — e a leitura conservadora de
+    proposito: na duvida sobre a origem de uma linha, ela e historico.
+    """
+    return parcela.codigo_legado is None and parcela.criado_por is not None
+
+
+def excluir_recebimento(
+    sessao: Session, *, clinica_id: int, usuario_id: int, parcela_id: int
+) -> bool:
+    """Desfaz um recebimento registrado por engano. Exclusao LOGICA.
+
+    Existe porque `parcela` e `lancamento` sao fatos independentes: apagar os
+    tratamentos nao mexe no dinheiro, e nem deveria — o sistema nao tem como
+    saber que aquele dinheiro era "daquele" tratamento. Quem errou o recebimento
+    desfaz o recebimento.
+
+    Devolve `False` — sem explodir — quando nao ha o que desfazer: parcela
+    inexistente, de outra clinica, ou ja desfeita. Desfazer duas vezes e o mesmo
+    resultado que desfazer uma; o segundo clique nao e um erro.
+
+    Levanta `RecebimentoInvalido` no unico caso em que ha algo e ainda assim nao
+    se apaga: parcela vinda do Dentalis.
+    """
+    parcela = sessao.scalars(
+        select(Parcela).where(Parcela.id == parcela_id, *_vivas(clinica_id))
+    ).first()
+    if parcela is None:
+        return False
+    if not registrada_aqui(parcela):
+        # Nao e "engano de digitacao": e uma das 28.244 linhas migradas. Apagar
+        # uma delas e apagar historico de 30 anos.
+        raise RecebimentoInvalido(
+            "esta parcela veio do histórico do Dentalis e não pode ser desfeita"
+        )
+
+    antes = {
+        "paciente_id": parcela.paciente_id,
+        "valor_pago": str(_decimal(parcela.valor_pago)),
+        "pago_em": parcela.pago_em.isoformat() if parcela.pago_em else None,
+        "forma_pagamento": parcela.forma_pagamento,
+    }
+    parcela.excluido_em = datetime.now(UTC)
+    sessao.flush()
+    registrar(
+        sessao,
+        clinica_id=clinica_id,
+        usuario_id=usuario_id,
+        acao="EXCLUIR",
+        entidade="parcela",
+        entidade_id=parcela.id,
+        antes=antes,
+    )
+    return True
+
+
+def editar_recebimento(
+    sessao: Session,
+    *,
+    clinica_id: int,
+    usuario_id: int,
+    parcela_id: int,
+    valor: Decimal,
+    quando: date,
+    forma: str | None = None,
+    observacao: str | None = None,
+) -> Parcela:
+    """Corrige um recebimento ja registrado: valor, data, forma e observacao.
+
+    Mesma trava do desfazer, e pelo mesmo motivo: so o que a clinica registrou
+    pelo sistema se mexe. Parcela do Dentalis e historico (`RecebimentoInvalido`).
+
+    Os quatro campos sao trocados pelo que veio, inclusive por vazio: campo
+    apagado no formulario e correcao como outra qualquer, e "vazio nao muda nada"
+    tornaria impossivel apagar o que se digitou errado. Isso e diferente de
+    `quitar()`, que ACRESCENTA um pagamento a uma parcela — la o vazio realmente
+    significa "nao mexi nisso".
+
+    O valor cobrado e o vencimento acompanham o pago e a data do pagamento
+    quando a parcela estava quitada. Todo recebimento avulso nasce assim
+    (`registrar_recebimento` grava os dois pares iguais), e sem isso baixar um
+    valor digitado a mais deixaria a diferenca como saldo: a clinica passaria a
+    cobrar da paciente um erro de digitacao da propria clinica. Na parcela que
+    ainda tem saldo — cobranca de verdade — o cobrado nao se mexe: quem recebeu
+    menos nao reduziu a divida.
+    """
+    _conferir(valor, quando)
+    parcela = sessao.scalars(
+        select(Parcela).where(Parcela.id == parcela_id, *_vivas(clinica_id))
+    ).first()
+    if parcela is None:
+        raise LookupError("parcela nao encontrada")
+    if not registrada_aqui(parcela):
+        raise RecebimentoInvalido(
+            "esta parcela veio do histórico do Dentalis e não pode ser editada"
+        )
+
+    # Sempre com dois centavos dos dois lados: '0' de um lado e '0.00' do outro
+    # faz o registro parecer uma mudanca que nao houve.
+    antes = {
+        "valor_cobrado": str(_decimal(parcela.valor_cobrado)),
+        "valor_pago": str(_decimal(parcela.valor_pago)),
+        "pago_em": parcela.pago_em.isoformat() if parcela.pago_em else None,
+        "forma_pagamento": parcela.forma_pagamento,
+        "observacao": parcela.observacao,
+    }
+
+    if parcela.quitada:
+        parcela.valor_cobrado = _decimal(valor)
+        parcela.vencimento = quando
+    parcela.valor_pago = _decimal(valor)
+    parcela.pago_em = quando
+    parcela.forma_pagamento = forma
+    parcela.observacao = observacao
+    sessao.flush()
+
+    registrar(
+        sessao,
+        clinica_id=clinica_id,
+        usuario_id=usuario_id,
+        acao="ATUALIZAR",
+        entidade="parcela",
+        entidade_id=parcela.id,
+        antes=antes,
+        depois={
+            "valor_cobrado": str(_decimal(parcela.valor_cobrado)),
+            "valor_pago": str(_decimal(parcela.valor_pago)),
+            "pago_em": quando.isoformat(),
+            "forma_pagamento": parcela.forma_pagamento,
+            "observacao": parcela.observacao,
+        },
+    )
+    return parcela
+
+
+def recebimentos_do_periodo(
+    sessao: Session, *, clinica_id: int, de: date, ate: date
+) -> list[LinhaRecebimento]:
+    """As linhas que somam o "Recebido" do periodo, uma a uma.
+
+    Mesmo recorte de `recebido()` — data do PAGAMENTO, parcela `substituida`
+    incluida — para a lista e o numero do cartao nunca discordarem.
+
+    Do mais recente para o mais antigo: quem abre esta lista quase sempre quer
+    desfazer o que acabou de registrar.
+    """
+    parcelas = list(
+        sessao.scalars(
+            select(Parcela)
+            .where(*_vivas(clinica_id), Parcela.pago_em >= de, Parcela.pago_em <= ate)
+            .order_by(Parcela.pago_em.desc(), Parcela.id.desc())
+        )
+    )
+    # Uma consulta para todos os nomes, como em `a_receber()`: o financeiro nao
+    # faz JOIN com `paciente`, pergunta ao service dele.
+    nomes = nomes_de(
+        sessao, clinica_id=clinica_id, paciente_ids={p.paciente_id for p in parcelas}
+    )
+    return [
+        LinhaRecebimento(
+            parcela_id=p.id,
+            paciente_id=p.paciente_id,
+            paciente=nomes.get(p.paciente_id, "—"),
+            valor=_decimal(p.valor_pago),
+            quando=p.pago_em,
+            forma=p.forma_pagamento,
+            observacao=p.observacao,
+            pode_desfazer=registrada_aqui(p),
+        )
+        for p in parcelas
+    ]

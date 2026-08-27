@@ -175,7 +175,7 @@ def buscar(
     clinica_id: int,
     termo: str = "",
     filtro: Filtro = Filtro.ATIVOS,
-    ordem: Ordem = Ordem.ALFABETICA,
+    ordem: Ordem = Ordem.ATENDIMENTO,
     limite: int | None = LIMITE_PADRAO,
 ) -> list[LinhaPaciente]:
     consulta = (

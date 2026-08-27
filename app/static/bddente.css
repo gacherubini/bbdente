@@ -832,8 +832,12 @@ a.botao-secundario:hover { background: var(--roxo-cl); }
 }
 .mais-precos li { display: flex; justify-content: space-between; gap: 12px; }
 
-/* --- precos vigentes na edicao do tratamento --- */
-.precos-vigentes {
+/* --- precos na edicao do tratamento ---
+
+   Um campo por convenio, editaveis de uma vez: a lista era so leitura e trocar
+   um preco exigia escolher o convenio num select, um de cada vez. Substituiu a
+   `.precos-vigentes`, que deixou de existir junto com a lista de leitura. */
+.precos-editaveis {
   list-style: none;
   margin: 0;
   padding: 10px 12px;
@@ -841,8 +845,25 @@ a.botao-secundario:hover { background: var(--roxo-cl); }
   border-radius: var(--raio);
   font-size: 13px;
 }
-.precos-vigentes li { display: flex; justify-content: space-between; gap: 12px; }
-.precos-vigentes li + li { margin-top: 5px; }
+.precos-editaveis li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.precos-editaveis li + li { margin-top: 5px; }
+/* O rotulo dentro da linha e o nome do convenio: sem a margem de 12px que ele
+   tem quando encabeca um campo, senao cada linha da lista ganharia um degrau. */
+.precos-editaveis .rotulo { margin: 0; flex: 1; min-width: 0; }
+/* Estreito e alinhado a direita: e coluna de dinheiro, e dinheiro se compara
+   pela unidade — `tabular-nums` mantem os algarismos na mesma coluna. */
+.cartao-form .precos-editaveis input[type="text"] {
+  width: 120px;
+  flex: none;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding: 6px 9px;
+}
 
 /* --- corrigir lancamento na linha do historico --- */
 button.ligacao {
@@ -970,13 +991,26 @@ button.excluir-lancamento:focus-visible {
   width: 11px; height: 11px; border-radius: 3px; display: inline-block; flex: none;
 }
 /* Os mesmos numeros do grafico, em texto. Fica escondido para quem enxerga o
-   desenho e disponivel para leitor de tela e para quando o JS nao carrega. */
+   desenho e disponivel para leitor de tela e para quando o JS nao carrega.
+
+   `fixed`, nao `absolute`: isto e um `<table>`, e em caixa `display: table` o
+   `height: 1px` vale como MINIMO — `overflow: hidden` tambem nao a corta. As
+   tres tabelas da tela do Financeiro ficavam com a altura real das linhas e
+   somavam 654px de rolagem fantasma: a pagina ia a 1876px com 1222px de
+   conteudo, e depois do fim do conteudo sobrava um vao branco que parecia
+   rolagem infinita. Elemento fixo nao entra no calculo da altura rolavel.
+
+   `display: block` resolveria tambem, e foi descartado: apagaria a semantica de
+   tabela, que e a unica razao de esta tabela existir. */
 .tabela-equivalente {
-  position: absolute;
+  position: fixed;
+  top: 0;
+  left: 0;
   width: 1px;
   height: 1px;
   overflow: hidden;
   clip: rect(0 0 0 0);
+  clip-path: inset(50%);
   white-space: nowrap;
 }
 
@@ -1062,3 +1096,113 @@ tbody tr.grupo-dia:hover td { background: var(--roxo-cl); }
 }
 .atendimento.planejado .atendimento-topo h3 a { color: var(--texto-fraco); }
 .atendimento.planejado .atendimento-topo h3 a:hover { color: var(--roxo-esc); }
+
+
+/* --- aviso que passa sozinho ---
+
+   Confirma o lancamento sem pedir clique. `fixed` nao e enfeite: no fluxo, cada
+   lancamento empurraria o odontograma alguns pixels para baixo — debaixo do
+   mouse de quem esta marcando dente atras de dente.
+
+   Nome proprio, e nao `.aviso`: aquele seletor ja tem DUAS regras neste arquivo
+   — a tarja amarela de dado suspeito na lista de pacientes e a caixa roxa de
+   explicacao do financeiro. Uma terceira teria virado as duas em toast. */
+.aviso-flutuante {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 60;
+  max-width: 380px;
+  background: var(--texto);
+  color: #fff;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.28);
+  animation: aviso-entra 0.22s ease-out;
+}
+.aviso-flutuante.saindo { opacity: 0; transition: opacity 0.3s ease-in; }
+
+@keyframes aviso-entra {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Quem pediu para o sistema nao animar nada nao recebe animacao nenhuma. */
+@media (prefers-reduced-motion: reduce) {
+  .aviso-flutuante { animation: none; }
+  .aviso-flutuante.saindo { transition: none; }
+}
+
+
+/* --- recebimentos: ver, corrigir, desfazer ---
+
+   O erro que originou esta tela: a dentista registrou um recebimento por engano,
+   apagou os lancamentos, e o "recebido" do mes nao mudou — porque `parcela` nao
+   tem vinculo nenhum com `lancamento`, e nao havia como desfazer o recebimento
+   em si. As acoes ficam na linha, e a de desfazer pergunta antes. */
+.lista-recebimentos .col-acoes {
+  text-align: right;
+  white-space: nowrap;
+  width: 1%;
+}
+.editar-recebimento {
+  color: var(--roxo-esc);
+  font-size: 12.5px;
+  text-decoration: none;
+  margin-right: 10px;
+}
+.editar-recebimento:hover { text-decoration: underline; }
+
+/* A pergunta abre em cima da linha, sem empurrar a tabela: a lista nao pode
+   pular debaixo do dedo de quem esta conferindo o caixa. */
+.desfazer-recebimento { display: inline-block; position: relative; }
+.desfazer-recebimento > summary { list-style: none; }
+.desfazer-recebimento > summary::-webkit-details-marker { display: none; }
+.abrir-desfazer {
+  cursor: pointer;
+  color: #B45309;
+  font-size: 12.5px;
+}
+.abrir-desfazer:hover { text-decoration: underline; }
+.desfazer-recebimento[open] > summary { font-weight: 600; }
+.desfazer-recebimento form {
+  position: absolute;
+  right: 0;
+  z-index: 20;
+  width: 260px;
+  text-align: left;
+  background: #fff;
+  border: 1px solid #FDE68A;
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
+}
+.pergunta-desfazer {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #92400E;
+}
+.botao-desfazer {
+  width: 100%;
+  margin: 0;
+  background: #B91C1C;
+  color: #fff;
+  border: 0;
+  border-radius: var(--raio);
+  padding: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.botao-desfazer:hover { background: #991B1B; }
+
+/* Parcela que veio do Dentalis: 30 anos de historico, nao engano de digitacao.
+   Cinza e sem cara de link — o estado e "nao da para mexer", nao "clique aqui". */
+.recebimento-do-historico {
+  color: var(--texto-fraco);
+  font-size: 11.5px;
+  font-style: italic;
+}

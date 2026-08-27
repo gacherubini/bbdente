@@ -11,7 +11,7 @@ from starlette.exceptions import HTTPException
 # troque por ele. Anotado aqui para nao virar precedente.
 from app.auth.models import Clinica, Usuario
 from app.auth.sessao import usuario_atual
-from app.catalogo.service import arvore, convenios
+from app.catalogo.service import arvore, convenio_particular, convenios
 from app.clinico.prontuario import gerar as gerar_prontuario
 from app.clinico.service import (
     anamnese,
@@ -49,7 +49,14 @@ def em_branco(
             "aba": "odontograma",
             "rascunho": True,
             "estado": estado_vazio(),
-            "catalogo": arvore(sessao, clinica_id=usuario.clinica_id),
+            # Sem paciente ainda, entao sem convenio: o preco que aparece no
+            # painel e o do PARTICULAR, que e o caso comum. A dentista corrige o
+            # valor na hora se for outro.
+            "catalogo": arvore(
+                sessao,
+                clinica_id=usuario.clinica_id,
+                convenio_id=convenio_particular(sessao, clinica_id=usuario.clinica_id),
+            ),
             "convenios": convenios(sessao, clinica_id=usuario.clinica_id),
             "hoje": date.today(),
             "atendimentos": [],
@@ -71,6 +78,11 @@ def tela(
     except LookupError as erro:
         raise HTTPException(status_code=404, detail=str(erro)) from erro
 
+    # O preco depende do convenio da paciente: o painel abre com o valor certo
+    # para ela, nao com a tabela do particular. Pela service, nunca pelo model.
+    paciente = obter_paciente(
+        sessao, clinica_id=usuario.clinica_id, paciente_id=paciente_id
+    )
     return templates.TemplateResponse(
         request,
         "odontograma.html",
@@ -78,7 +90,15 @@ def tela(
             "aba": "odontograma",
             "rascunho": False,
             "estado": estado,
-            "catalogo": arvore(sessao, clinica_id=usuario.clinica_id),
+            "catalogo": arvore(
+                sessao,
+                clinica_id=usuario.clinica_id,
+                convenio_id=(
+                    paciente.convenio_id
+                    if paciente is not None and paciente.convenio_id
+                    else convenio_particular(sessao, clinica_id=usuario.clinica_id)
+                ),
+            ),
             "hoje": date.today(),
             "atendimentos": atendimentos_do_paciente(
                 sessao, clinica_id=usuario.clinica_id, paciente_id=paciente_id

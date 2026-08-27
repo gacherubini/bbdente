@@ -19,6 +19,8 @@
   var el = function (id) { return document.getElementById(id); };
   var alvo = { dente: null, regiao: null };
   var repetindo = false;
+  // A dentista mexeu no VALOR com a propria mao: a sugestao para de escrever ali.
+  var valorEditadoAMao = false;
 
   // Na boca em branco (menu Odontograma) ainda nao ha paciente: quem recebe o
   // tratamento e o rascunho, que so grava no fim. Com paciente, vai direto.
@@ -57,6 +59,41 @@
     });
   }
 
+  // --- valor sugerido pela tabela de preco ---------------------------------
+
+  /* Quantas vezes o preco do tratamento conta.
+
+     Restauracao de tres faces custa tres vezes a de uma. Em BOCA e DENTE nao ha
+     face a contar: vale uma vez. */
+  function quantasFaces() {
+    if (elEscopo() !== "REGIOES") return 1;
+    return Math.max(1, regioesMarcadas().length);
+  }
+
+  function formatarMoeda(numero) {
+    return numero.toFixed(2).replace(".", ",");
+  }
+
+  /* Preenche VALOR com preco x faces.
+
+     Nao sobrescreve o que a dentista digitou: quem da desconto e ela, e apagar
+     um desconto porque ela marcou mais uma face seria trocar a decisao dela pela
+     da tabela. O sinal de "digitou a mao" so se apaga quando ela troca de
+     tratamento, que e quando o valor anterior deixa de fazer sentido. */
+  function sugerirValor() {
+    if (valorEditadoAMao) return;
+    var procedimento = porId[el("painel-procedimento").value];
+    // `preco` nulo e 'sem tabela de preco', que nao e o mesmo que de graca:
+    // deixamos o campo vazio para ela digitar, em vez de mentir um R$ 0,00.
+    if (!procedimento || !procedimento.preco) {
+      el("painel-valor").value = "";
+      return;
+    }
+    var unitario = Number(procedimento.preco);
+    if (!isFinite(unitario)) return;
+    el("painel-valor").value = formatarMoeda(unitario * quantasFaces());
+  }
+
   function mostrarAlvo() {
     if (alvo.dente === null) {
       el("painel-alvo").textContent = "Clique num dente para começar";
@@ -82,6 +119,7 @@
     el("painel-repetir").disabled = !Boolean(procedimento);
     el("painel-regioes").hidden = escopo !== "REGIOES";
     destacarNoDesenho();
+    sugerirValor();
   }
 
   /* Devolve ao desenho o que o painel sabe estar selecionado.
@@ -131,8 +169,14 @@
         marcarSomente(sugeridas);
       }
     }
+    valorEditadoAMao = false;
     mostrarAlvo();
     atualizarBotoes();
+  });
+
+  // Digitou no VALOR: a sugestao cala a boca ate ela trocar de tratamento.
+  el("painel-valor").addEventListener("input", function () {
+    valorEditadoAMao = true;
   });
 
   document.querySelectorAll('input[name="escopo"]').forEach(function (radio) {
@@ -141,6 +185,42 @@
   document.querySelectorAll('input[name="regiao"]').forEach(function (caixa) {
     caixa.addEventListener("change", atualizarBotoes);
   });
+
+  // --- aviso que passa sozinho ---
+
+  /* Confirma o que foi lancado sem pedir clique.
+
+     Uma caixa com OK custaria um clique em CADA lancamento, e marcar dente atras
+     de dente e o caminho de todo dia. O texto diz o que foi gravado para o erro
+     aparecer sozinho — "lancado" sem dizer o que nao ajuda ninguem. */
+  var avisoAtual = null;
+
+  function avisar(texto) {
+    if (avisoAtual) avisoAtual.remove();
+    var caixa = document.createElement("div");
+    caixa.className = "aviso-flutuante";
+    caixa.setAttribute("role", "status");
+    caixa.textContent = texto;
+    document.body.appendChild(caixa);
+    avisoAtual = caixa;
+    setTimeout(function () {
+      caixa.classList.add("saindo");
+      setTimeout(function () {
+        caixa.remove();
+        if (avisoAtual === caixa) avisoAtual = null;
+      }, 300);
+    }, 3500);
+  }
+
+  function descreverLancamento(corpo) {
+    var procedimento = porId[corpo.procedimento_id];
+    var nome = procedimento ? procedimento.nome : "tratamento";
+    var onde = corpo.escopo === "BOCA" ? "boca toda" : "dente " + corpo.dente;
+    var quanto = corpo.valor
+      ? " · R$ " + formatarMoeda(Number(corpo.valor))
+      : "";
+    return nome + " — " + onde + quanto;
+  }
 
   // --- enviar ---
   function mostrarErro(texto) {
@@ -186,8 +266,13 @@
       .then(function (estado) {
         estadoInicial = estado;
         odontograma.atualizar(estado);
+        avisar(
+          (rascunho ? "Adicionado ao atendimento: " : "Lançado: ") +
+          descreverLancamento(corpo)
+        );
         if (!repetindo) {
           alvo = { dente: null, regiao: null };
+          valorEditadoAMao = false;
           mostrarAlvo();
         }
         atualizarBotoes();

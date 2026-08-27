@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
@@ -80,6 +82,23 @@ def listar(
     )
 
 
+def _precos_digitados(
+    convenio_ids: list[str], valores: list[str]
+) -> list[tuple[int, Decimal]]:
+    """Os campos de preco da tela de edicao, um por convenio, lidos de uma vez.
+
+    Campo vazio e "nao mexer": apagar preco nao existe, o historico precisa dele.
+
+    Converte tudo antes de devolver — um valor invalido no ultimo convenio nao
+    pode deixar os primeiros ja gravados.
+    """
+    return [
+        (int(convenio_id), para_decimal(valor))
+        for convenio_id, valor in zip(convenio_ids, valores, strict=False)
+        if convenio_id.strip() and valor.strip()
+    ]
+
+
 def _gravar(
     sessao: Session,
     *,
@@ -94,8 +113,16 @@ def _gravar(
     ativo: bool,
     convenio_id: str,
     valor: str,
+    preco_convenio_id: list[str] | None = None,
+    preco_valor: list[str] | None = None,
 ) -> None:
     """Grava tratamento e, se veio valor, a vigencia de preco.
+
+    Sao duas portas de entrada de preco: o par `convenio_id`/`valor` da tela de
+    cadastro (um preco de cada vez, para o tratamento que acabou de nascer) e os
+    campos `preco_convenio_id`/`preco_valor` da tela de edicao, que trazem um por
+    convenio. Quem decide o que vira linha nova e `definir_preco`: valor igual ao
+    que ja vale nao grava nada.
 
     Confere tudo ANTES de escrever a primeira linha. Assim o caminho do erro nao
     precisa de `rollback` — e `rollback` aqui jogaria fora tambem o que a
@@ -109,6 +136,7 @@ def _gravar(
         nome=nome,
     )
     novo_preco = para_decimal(valor) if convenio_id and valor.strip() else None
+    novos_precos = _precos_digitados(preco_convenio_id or [], preco_valor or [])
 
     procedimento = salvar_procedimento(
         sessao,
@@ -130,6 +158,17 @@ def _gravar(
             procedimento_id=procedimento.id,
             convenio_id=int(convenio_id),
             valor=novo_preco,
+        )
+    for convenio, preco in novos_precos:
+        # `definir_preco` devolve a vigencia atual sem gravar quando o valor nao
+        # mudou: salvar o formulario sem mexer nos precos nao cria linha nenhuma.
+        definir_preco(
+            sessao,
+            clinica_id=clinica_id,
+            usuario_id=usuario_id,
+            procedimento_id=procedimento.id,
+            convenio_id=convenio,
+            valor=preco,
         )
 
 
@@ -182,15 +221,18 @@ def _tela_de_edicao(
     procedimento: Procedimento,
     erro: str | None = None,
 ) -> HTMLResponse:
+    vigentes = precos_por_procedimento(sessao, clinica_id=clinica_id).get(
+        procedimento.id, []
+    )
     return templates.TemplateResponse(
         request,
         "tratamento_editar.html",
         {
             "aba": "tratamentos",
             "procedimento": procedimento,
-            "precos": precos_por_procedimento(sessao, clinica_id=clinica_id).get(
-                procedimento.id, []
-            ),
+            # Por convenio, para a tela desenhar um campo por convenio da clinica
+            # — inclusive os que ainda nao tem preco, que abrem vazios.
+            "precos": {linha["convenio_id"]: linha["valor"] for linha in vigentes},
             "categorias": _categorias(sessao, clinica_id),
             "convenios": _convenios(sessao, clinica_id),
             "escopos": list(Escopo),
@@ -225,6 +267,11 @@ def atualizar(
     ativo: str = Form(""),
     convenio_id: str = Form(""),
     valor: str = Form(""),
+    # Um campo de preco por convenio: dois campos repetidos, casados pela ordem
+    # em que o navegador os manda. list[...] direto em Form nao converte tipo de
+    # forma confiavel; convertemos a mao, como ja e feito com `regiao`.
+    preco_convenio_id: list[str] = Form([]),
+    preco_valor: list[str] = Form([]),
     usuario: Usuario = Depends(usuario_atual),
     sessao: Session = Depends(obter_sessao),
 ):
@@ -243,6 +290,8 @@ def atualizar(
             ativo=bool(ativo),
             convenio_id=convenio_id,
             valor=valor,
+            preco_convenio_id=preco_convenio_id,
+            preco_valor=preco_valor,
         )
     except (CodigoRepetido, ValorInvalido, ValueError) as erro:
         # Nada foi escrito: a tela mostra o tratamento como esta guardado, e o

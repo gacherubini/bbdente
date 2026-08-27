@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block titulo %}Corrigir recebimento — BDDente{% endblock %}
+{% block conteudo %}
+<h1>Corrigir recebimento</h1>
+<p class="legenda-topo">
+  {{ paciente }} ·
+  registrado em
+  {{ parcela.criado_em.strftime('%d/%m/%Y') if parcela.criado_em else '—' }}
+</p>
+
+<form class="cartao-form" method="post"
+      action="/financeiro/recebimento/{{ parcela.id }}/editar">
+  {% if erro %}<p class="painel-erro">{{ erro }}</p>{% endif %}
+
+  <div class="linha-dupla">
+    <div>
+      <label class="rotulo" for="valor">Valor recebido (R$)</label>
+      <input type="text" id="valor" name="valor" inputmode="decimal" required
+             autofocus value="{{ dados.valor }}" placeholder="0,00">
+    </div>
+    <div>
+      <label class="rotulo" for="data">Data do pagamento</label>
+      <input type="date" id="data" name="data" value="{{ dados.data }}">
+    </div>
+  </div>
+
+  <label class="rotulo" for="forma">Forma de pagamento</label>
+  <select id="forma" name="forma">
+    <option value="">— não informado —</option>
+    {% for f in formas %}
+      <option value="{{ f }}" {{ 'selected' if dados.forma == f }}>{{ f }}</option>
+    {% endfor %}
+  </select>
+
+  <label class="rotulo" for="observacao">Observação</label>
+  <input type="text" id="observacao" name="observacao"
+         value="{{ dados.observacao }}" placeholder="opcional">
+
+  {# O campo esvaziado apaga mesmo. Se "vazio nao muda nada" fosse a regra, nao
+     haveria como tirar uma observacao digitada errada. #}
+  <p class="painel-dica">
+    Corrigir a data muda o mês em que este dinheiro é contado. Esvaziar um campo
+    apaga o que estava nele, e toda correção fica registrada na auditoria.
+  </p>
+
+  <div class="acoes-form">
+    {# Sem data de pagamento a parcela nao aparece em mes nenhum: a volta e para
+       a lista do mes corrente, que e onde a tela abriria sozinha. #}
+    <a class="botao-secundario"
+       href="{% if parcela.pago_em %}/recebimentos?ano={{ parcela.pago_em.year }}&mes={{ parcela.pago_em.month }}{% else %}/recebimentos{% endif %}"
+       >Cancelar</a>
+    <button type="submit" class="primario">Salvar correção</button>
+  </div>
+</form>
+{% endblock %}

@@ -68,6 +68,64 @@
   tratamento feito em março pode ser pago em julho.
 </p>
 
+<h2 class="titulo-historico">
+  Recebido em {{ nome_do_mes }}
+  <span class="legenda-topo">
+    o que soma o cartão «Recebido» ·
+    <a href="/recebimentos?ano={{ ano }}&mes={{ mes }}">ver e corrigir</a>
+  </span>
+</h2>
+<table class="lista-recebimentos">
+  <thead>
+    <tr><th>Paciente</th><th>Recebido em</th><th>Forma</th>
+        <th style="text-align:right">Valor</th>
+        <th class="col-acoes"><span class="oculto-visualmente">Ações</span></th></tr>
+  </thead>
+  <tbody>
+  {% for linha in recebimentos %}
+    <tr>
+      <td class="nome">
+        <a href="/odontograma/{{ linha.paciente_id }}">{{ linha.paciente }}</a>
+      </td>
+      <td>{{ linha.quando.strftime('%d/%m/%Y') }}</td>
+      <td>{{ linha.forma or '—' }}</td>
+      <td style="text-align:right" class="numero">R$ {{ linha.valor | moeda }}</td>
+      <td class="col-acoes">
+        {% if linha.pode_desfazer %}
+          <a class="editar-recebimento"
+             href="/financeiro/recebimento/{{ linha.parcela_id }}/editar">editar</a>
+          {# O clique em "desfazer" nao desfaz nada: abre a pergunta que DIZ de
+             quem e quanto vai sair do caixa. Sem JavaScript e sem confirm()
+             nativo — <details> ja faz isso sozinho. #}
+          <details class="desfazer-recebimento">
+            <summary class="abrir-desfazer">desfazer</summary>
+            <form method="post"
+                  action="/financeiro/recebimento/{{ linha.parcela_id }}/desfazer">
+              <input type="hidden" name="ano" value="{{ ano }}">
+              <input type="hidden" name="mes" value="{{ mes }}">
+              <p class="pergunta-desfazer">
+                Tirar R$ {{ linha.valor | moeda }} de {{ linha.paciente }} do
+                recebido de {{ nome_do_mes }}?
+              </p>
+              <button type="submit" class="botao-desfazer">Sim, desfazer</button>
+            </form>
+          </details>
+        {% else %}
+          <span class="recebimento-do-historico"
+                title="Veio do Dentalis: histórico, não dá para desfazer aqui.">
+            histórico
+          </span>
+        {% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" style="color:var(--texto-fraco)">
+      Nenhum recebimento registrado em {{ nome_do_mes }} de {{ ano }}.
+    </td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
 <h2 class="titulo-historico">Dinheiro recebido em {{ ano }}</h2>
 <div id="grafico-meses" class="grafico"></div>
 <table class="tabela-equivalente">

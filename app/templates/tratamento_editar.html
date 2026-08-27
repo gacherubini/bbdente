@@ -65,37 +65,31 @@
     </label>
   </div>
 
-  <label class="rotulo">Preço vigente</label>
-  {% if precos %}
-    <ul class="precos-vigentes">
-      {% for linha in precos %}
-        <li><span>{{ linha.convenio }}</span>
-            <span class="numero">R$ {{ linha.valor | moeda }}</span></li>
+  <label class="rotulo">Preço vigente (R$)</label>
+  {% if convenios %}
+    <ul class="precos-editaveis">
+      {% for convenio in convenios %}
+        {# O par de campos repetidos e casado pela ordem no servidor: o hidden
+           diz de qual convenio e o valor que vem logo depois. #}
+        {% set atual = precos.get(convenio.id) %}
+        <li>
+          <input type="hidden" name="preco_convenio_id" value="{{ convenio.id }}">
+          <label class="rotulo" for="preco_{{ convenio.id }}">{{ convenio.nome }}</label>
+          <input type="text" id="preco_{{ convenio.id }}" name="preco_valor"
+                 inputmode="decimal" placeholder="sem tabela"
+                 value="{{ atual | moeda if atual is not none else '' }}">
+        </li>
       {% endfor %}
     </ul>
+    <p class="painel-dica">
+      Só o convênio cujo valor mudar ganha preço novo. O preço antigo não é
+      apagado: fica guardado com a data em que valia, para o histórico continuar
+      explicável. Campo em branco quer dizer “não mexer” — e convênio sem tabela
+      de preço não é o mesmo que de graça.
+    </p>
   {% else %}
-    <p class="painel-dica">Este tratamento ainda não tem tabela de preço.</p>
+    <p class="painel-dica">Esta clínica ainda não tem convênio cadastrado.</p>
   {% endif %}
-
-  <div class="linha-dupla">
-    <div>
-      <label class="rotulo" for="convenio_id">Novo preço para</label>
-      <select id="convenio_id" name="convenio_id">
-        <option value="">— não mexer —</option>
-        {% for convenio in convenios %}
-          <option value="{{ convenio.id }}">{{ convenio.nome }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div>
-      <label class="rotulo" for="valor">Valor (R$)</label>
-      <input type="text" id="valor" name="valor" inputmode="decimal" placeholder="0,00">
-    </div>
-  </div>
-  <p class="painel-dica">
-    Preço antigo não é apagado: fica guardado com a data em que valia, para o
-    histórico continuar explicável.
-  </p>
 
   <div class="acoes-form">
     <a class="botao-secundario" href="/tratamentos">Cancelar</a>

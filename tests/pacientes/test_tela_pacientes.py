@@ -101,7 +101,7 @@ def test_ordem_inventada_cai_no_padrao_em_vez_de_dar_erro(cliente_logado):
     """URL editada a mao nao derruba a tela — mesma regra do filtro."""
     resposta = cliente_logado.get("/pacientes?ordem=por-cor-favorita&filtro=todos")
     assert resposta.status_code == 200
-    assert 'value="alfabetica" selected' in resposta.text
+    assert 'value="atendimento" selected' in resposta.text
 
 
 def test_trocar_de_filtro_nao_perde_a_ordem_escolhida(cliente_logado):

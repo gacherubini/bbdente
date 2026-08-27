@@ -40,10 +40,20 @@ def test_o_nome_aparece_em_branco_sobre_a_lateral_roxa():
     assert lateral and "roxo" in lateral.group(1)
 
 
-def test_a_navegacao_tem_as_cinco_abas():
+def test_a_navegacao_tem_as_seis_abas():
+    """Recebimentos entrou em 27/08/2026: dava para ver os atendimentos e nao
+    dava para ver o dinheiro que entrou, nem para corrigir um recebimento
+    registrado por engano."""
     html = BASE.read_text(encoding="utf-8")
-    for rotulo in ("Pacientes", "Odontograma", "Atendimentos", "Tratamentos", "Financeiro"):
+    for rotulo in ("Pacientes", "Odontograma", "Atendimentos", "Tratamentos",
+                   "Financeiro", "Recebimentos"):
         assert rotulo in html
+
+
+def test_recebimentos_fica_ao_lado_do_financeiro():
+    """Sao a mesma pergunta em dois recortes — o mes fechado e a linha a linha."""
+    html = BASE.read_text(encoding="utf-8")
+    assert html.index('href="/financeiro"') < html.index('href="/recebimentos"')
 
 
 def test_atendimentos_fica_ao_lado_do_odontograma():
@@ -110,3 +120,39 @@ def test_o_rodape_da_lateral_diz_quem_esta_logado_e_leva_ao_perfil():
     assert "usuario.nome" in html
     assert 'href="/perfil"' in html
     assert 'action="/logout"' in html
+
+
+def test_a_tabela_so_para_leitor_de_tela_nao_estica_a_pagina():
+    """Ela e um `<table>`, e em caixa `display: table` o `height: 1px` vale como
+    MINIMO, nao como teto: `overflow: hidden` tambem nao a corta. As tres tabelas
+    da tela do Financeiro somavam 654px de rolagem fantasma — a pagina ia a
+    1876px com 1222px de conteudo, e depois do fim do conteudo sobrava um vao
+    branco que parecia rolagem infinita.
+
+    `position: fixed` tira do calculo da altura rolavel sem virar `display:
+    block`, que apagaria a semantica de tabela — e a tabela existe justamente
+    para o leitor de tela ler o grafico.
+    """
+    css = CSS.read_text(encoding="utf-8")
+    corpo = re.search(r"\.tabela-equivalente\s*\{([^}]*)\}", css, re.S)
+    assert corpo, "regra .tabela-equivalente nao encontrada"
+    regra = corpo.group(1)
+    assert re.search(r"position\s*:\s*fixed", regra), (
+        "absolute continua contando para a altura rolavel do documento"
+    )
+    assert not re.search(r"display\s*:\s*block", regra), (
+        "display:block apagaria a semantica de tabela para o leitor de tela"
+    )
+
+
+def test_o_aviso_de_lancamento_nao_empurra_a_tela():
+    """Ele passa sozinho; se entrasse no fluxo, cada lancamento mexeria o
+    odontograma de lugar embaixo do mouse da dentista.
+
+    O nome nao pode ser `.aviso`: esse seletor ja tem duas regras no arquivo
+    (tarja de dado suspeito e caixa de explicacao), e uma terceira viraria as
+    duas em toast flutuante."""
+    css = CSS.read_text(encoding="utf-8")
+    corpo = re.search(r"\.aviso-flutuante\s*\{([^}]*)\}", css, re.S)
+    assert corpo, "regra .aviso-flutuante nao encontrada"
+    assert re.search(r"position\s*:\s*fixed", corpo.group(1))

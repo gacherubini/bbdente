@@ -44,9 +44,74 @@ def convenios(sessao: Session, *, clinica_id: int) -> list[tuple[int, str]]:
     ]
 
 
-def arvore(sessao: Session, *, clinica_id: int) -> list[dict]:
+def convenio_particular(sessao: Session, *, clinica_id: int) -> int | None:
+    """O id do convenio PARTICULAR, achado pelo codigo '001'.
+
+    E pelo codigo, nao pelo nome: o nome e digitado e ja veio do Dentalis com
+    grafias diferentes; o codigo e a chave. Clinica sem particular devolve None
+    em vez de estourar — quem chama decide o que fazer sem tabela."""
+    return sessao.scalars(
+        select(Convenio.id).where(
+            Convenio.clinica_id == clinica_id, Convenio.codigo == "001"
+        )
+    ).first()
+
+
+def _preco_por_procedimento_no_convenio(
+    sessao: Session, *, clinica_id: int, convenio_id: int, em: date | None = None
+) -> dict[int, Decimal]:
+    """O preco vigente de cada procedimento num convenio so, numa consulta.
+
+    Mesma ideia de `precos_por_procedimento`: `DISTINCT ON` resolve "a linha mais
+    recente de cada procedimento" sem subconsulta e sem uma ida ao banco por
+    procedimento — sao 612 pares procedimento x convenio no banco real.
+    """
+    quando = em or date.today()
+    return {
+        procedimento_id: valor
+        for procedimento_id, valor in sessao.execute(
+            select(Preco.procedimento_id, Preco.valor)
+            .join(Procedimento, Preco.procedimento_id == Procedimento.id)
+            .join(Convenio, Preco.convenio_id == Convenio.id)
+            .where(
+                Procedimento.clinica_id == clinica_id,
+                Convenio.clinica_id == clinica_id,
+                Preco.convenio_id == convenio_id,
+                Preco.vigente_desde <= quando,
+            )
+            .distinct(Preco.procedimento_id)
+            .order_by(
+                Preco.procedimento_id,
+                Preco.vigente_desde.desc(),
+                Preco.id.desc(),
+            )
+        ).all()
+    }
+
+
+def arvore(
+    sessao: Session, *, clinica_id: int, convenio_id: int | None = None
+) -> list[dict]:
     """Catalogo agrupado por categoria, na ordem da tela. Alimenta o painel de
-    lancamento e a tela de tratamentos."""
+    lancamento e a tela de tratamentos.
+
+    Cada procedimento leva junto o `preco` vigente hoje no convenio pedido — sem
+    convenio, o do PARTICULAR, que e o caso da boca em branco (ainda nao ha
+    paciente, entao nao ha convenio). E **string**, para o dicionario atravessar
+    o `tojson` do painel; `Decimal` nao atravessa.
+
+    Sem tabela de preco o valor e `None`, nunca `"0.00"`: 'sem tabela' nao e 'de
+    graca', e o zero abriria um lancamento de graca sem ninguem perceber.
+    """
+    if convenio_id is None:
+        convenio_id = convenio_particular(sessao, clinica_id=clinica_id)
+    precos = (
+        {}
+        if convenio_id is None
+        else _preco_por_procedimento_no_convenio(
+            sessao, clinica_id=clinica_id, convenio_id=convenio_id
+        )
+    )
     categorias = list(
         sessao.scalars(
             select(Categoria)
@@ -63,6 +128,7 @@ def arvore(sessao: Session, *, clinica_id: int) -> list[dict]:
     )
     por_categoria: dict[int, list[dict]] = {}
     for p in procedimentos:
+        valor = precos.get(p.id)
         por_categoria.setdefault(p.categoria_id, []).append(
             {
                 "id": p.id,
@@ -71,6 +137,7 @@ def arvore(sessao: Session, *, clinica_id: int) -> list[dict]:
                 "escopo_sugerido": p.escopo_sugerido.value,
                 "regioes_sugeridas": [r.value for r in (p.regioes_sugeridas or [])],
                 "duracao_min": p.duracao_min,
+                "preco": None if valor is None else str(valor.quantize(Decimal("0.01"))),
             }
         )
     return [
@@ -102,7 +169,13 @@ def precos_por_procedimento(
     """
     quando = em or date.today()
     linhas = sessao.execute(
-        select(Preco.procedimento_id, Convenio.nome, Convenio.codigo, Preco.valor)
+        select(
+            Preco.procedimento_id,
+            Preco.convenio_id,
+            Convenio.nome,
+            Convenio.codigo,
+            Preco.valor,
+        )
         .join(Procedimento, Preco.procedimento_id == Procedimento.id)
         .join(Convenio, Preco.convenio_id == Convenio.id)
         .where(
@@ -120,9 +193,14 @@ def precos_por_procedimento(
     ).all()
 
     tabela: dict[int, list[dict]] = {}
-    for procedimento_id, convenio, codigo, valor in linhas:
+    for procedimento_id, convenio_id, convenio, codigo, valor in linhas:
         tabela.setdefault(procedimento_id, []).append(
-            {"convenio": convenio, "codigo": codigo, "valor": valor}
+            {
+                "convenio_id": convenio_id,
+                "convenio": convenio,
+                "codigo": codigo,
+                "valor": valor,
+            }
         )
     # O particular e o codigo '001' e cai naturalmente em primeiro na ordem do
     # codigo, que e a mesma ordem do select de convenios da tela.

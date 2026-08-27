@@ -82,8 +82,11 @@ def cenario(sessao):
 
 
 def test_busca_vazia_traz_os_ativos_em_ordem_alfabetica(sessao, cenario):
+    """A ordem pedida continua sendo respeitada — o que mudou foi so o padrao."""
     clinica, amanda, itagiba, antigo, _ = cenario
-    linhas = buscar(sessao, clinica_id=clinica.id, filtro=Filtro.ATIVOS)
+    linhas = buscar(
+        sessao, clinica_id=clinica.id, filtro=Filtro.ATIVOS, ordem=Ordem.ALFABETICA
+    )
     nomes = [linha.nome for linha in linhas]
     assert nomes == ["Amanda Ribeiro Nogueira", "Itagiba Pereira Bastos"]
 
@@ -228,10 +231,17 @@ def _nomes(sessao, clinica, **kw) -> list[str]:
     ]
 
 
-def test_a_ordem_padrao_continua_alfabetica(sessao, para_ordenar):
-    assert _nomes(sessao, para_ordenar) == [
-        "Ana Beatriz", "Marcos Vieira", "Zilda Antunes",
-    ]
+def test_a_ordem_padrao_e_por_quem_foi_atendido_por_ultimo(sessao, para_ordenar):
+    """Era alfabetica ate 27/08/2026. A lista abre no trabalho do dia: quem
+    esteve na cadeira por ultimo e quem tem chance de voltar ao assunto.
+
+    Consequencia registrada no AGENTS.md e real: o corte de 100 resultados
+    acontece DEPOIS do ORDER BY, entao trocar o padrao troca QUAIS 100 aparecem.
+    Quem nunca foi atendido cai para o fim (`nulls_last`) e sai da primeira tela.
+    """
+    assert _nomes(sessao, para_ordenar) == _nomes(
+        sessao, para_ordenar, ordem=Ordem.ATENDIMENTO
+    )
 
 
 def test_por_atendimento_traz_quem_veio_por_ultimo_primeiro(sessao, para_ordenar):

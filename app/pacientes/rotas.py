@@ -63,7 +63,7 @@ def listar(
     request: Request,
     q: str = Query(""),
     filtro: str = Query(Filtro.ATIVOS.value),
-    ordem: str = Query(Ordem.ALFABETICA.value),
+    ordem: str = Query(Ordem.ATENDIMENTO.value),
     usuario: Usuario = Depends(usuario_atual),
     sessao: Session = Depends(obter_sessao),
 ):
@@ -74,7 +74,7 @@ def listar(
     try:
         ordenacao = Ordem(ordem)
     except ValueError:
-        ordenacao = Ordem.ALFABETICA
+        ordenacao = Ordem.ATENDIMENTO
 
     return templates.TemplateResponse(
         request,
