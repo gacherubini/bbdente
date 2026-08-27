@@ -282,15 +282,878 @@ O detalhamento de cada task, com os requisitos e a lista de testes, está no rel
 
 ## 11. Fase 2 — lembrete por WhatsApp
 
-**Em desenho.** Requisitos já dados pelo dono do projeto: lembrete 24h antes para quem tem horário marcado; conexão do WhatsApp da própria dentista via Baileys ou Evolution API; **a conexão fica numa tela de Configurações**, para ela conectar e reconectar sozinha; **os textos das mensagens são templates editáveis por ela**.
+A agenda vale sozinha; o lembrete não vale nada sem ela. Por isso é fase separada,
+e por isso nada aqui pode atrasar a Fase 1.
 
-Quatro coisas precisam estar resolvidas no papel antes de escrever qualquer linha, e nenhuma é detalhe:
+### 11.1 O que o lembrete é
 
-1. **A máquina dorme.** `auto_stop_machines = "suspend"` e `min_machines_running = 0` no `fly.toml`. Um lembrete que precisa disparar às 18h de terça não dispara sozinho numa máquina suspensa.
-2. **Baileys e Evolution não são API oficial.** Automatizam o WhatsApp Web com o número real. O risco concreto é o número do consultório ser banido — e é por ele que as pacientes acham a clínica.
-3. **LGPD.** "Consulta amanhã às 14h" é uma coisa; "canal no dente 36" é outra. Precisa estar definido o que pode e o que nunca pode virar variável de template, e onde essa regra mora no código.
-4. **Reenvio e idempotência.** O que impede a mesma paciente de receber duas vezes, e o que acontece com um lembrete cujo horário já passou quando o processo finalmente roda. Isso é schema, não prosa.
+Um dia antes da consulta, a paciente recebe no WhatsApp uma mensagem dizendo que
+tem horário amanhã, a que horas, e como avisar se não puder vir. Só isso.
 
-Mais: **sessão do Baileys é estado com disco** (o container do Fly não tem disco que sobreviva a restart — ver `docs/OPERACAO.md`), e **Baileys é Node num sistema Python**, o que significa um segundo runtime na imagem ou um segundo serviço.
+O que ele **não** é: não é confirmação de duas vias (ninguém lê a resposta no
+primeiro corte), não é cobrança, não é marketing, não é recall de limpeza, e não
+diz uma palavra sobre o que vai ser feito na boca dela.
 
-A decisão entre API oficial e não oficial é do dono do projeto, não do plano.
+### 11.2 Quem recebe — e o horário de quem não é da base
+
+A agenda aceita dois tipos de pessoa no mesmo campo (§3.1): a paciente cadastrada
+(`paciente_id`) e o telefonema anônimo (`nome_avulso` + `telefone_avulso`). O
+lembrete segue essa mesma divisão, e a diferença entre as duas **não é técnica, é
+de consentimento**:
+
+| Quem | Telefone | Autorização | Recebe? |
+|---|---|---|---|
+| Paciente da base, com WhatsApp e `aceita_whatsapp = true` | ficha | perguntada na cadeira | **sim** |
+| Paciente da base, `aceita_whatsapp` `NULL` ou `false` | ficha | não temos | não — `DESCARTADO/sem_permissao` |
+| Paciente da base sem telefone aproveitável | — | — | não — `DESCARTADO/sem_numero` |
+| Avulso **com** telefone digitado no agendamento | `telefone_avulso` | o próprio telefonema | **sim** |
+| Avulso **sem** telefone | — | — | não — `DESCARTADO/sem_numero`, **e o horário é marcado do mesmo jeito** |
+
+A última linha é o requisito em uma frase: **não ter WhatsApp nunca impede de
+marcar.** Não é erro, não é bloqueio, não é diálogo de confirmação. O horário
+entra na grade e a tela apenas mostra, no cartão, um selo cinza `sem lembrete`.
+
+**Por que o avulso pode receber sem `aceita_whatsapp` e a paciente migrada não.**
+Parece contraditório e não é. Os 5.559 telefones migrados foram coletados entre
+1996 e 2025 para outra finalidade, sem registro nenhum de autorização — presumir
+autorização deles é exatamente o que a lei não deixa. O telefone avulso é ditado
+**agora, ao telefone, para marcar aquela consulta**; mandar o lembrete daquela
+consulta é a finalidade para a qual ele acabou de ser dado. São situações
+diferentes e por isso têm regra diferente.
+
+Ainda assim ela manda: ao lado do campo de telefone no formulário do horário fica
+`[x] avisar no WhatsApp na véspera`, marcado por padrão, que grava
+`agendamento.avisar_avulso`. Se a pessoa disser "não me manda mensagem", ela
+desmarca ali.
+
+**Quando o avulso vira paciente** (Task 8: concluir o atendimento cria o cadastro
+e vincula o agendamento), o telefone vai para a ficha e **`aceita_whatsapp` nasce
+`NULL`** — o "pode avisar deste horário" não é autorização permanente para
+sempre. A tela do horário mostra o selo "sem permissão de WhatsApp · perguntar"
+com botão de um clique, e a autorização de verdade é registrada com a paciente ali
+na frente.
+
+### 11.3 Os quatro pontos duros, com resposta e preço
+
+#### A. A máquina do Fly dorme
+
+`fly.toml`: `auto_stop_machines = "suspend"`, `min_machines_running = 0`. A máquina
+suspende quando ninguém usa e acorda na primeira requisição HTTP. **Às 18h de terça
+não há ninguém usando** — o consultório fechou. Nada dispara sozinho.
+
+Com a decisão por Baileys (§11.4), a saída é **`min_machines_running = 1`**:
+não é só disparar, é manter um socket vivo. Custo: **+US$ 3 a 5/mês** sobre a conta
+atual de ~US$ 3,50. O gatilho do horário passa a ser cron dentro do container.
+
+Duas restrições do Fly que fecham as alternativas: máquina com `schedule` **não
+pode** usar `suspend` — a opção "agendar a própria máquina do app" é incompatível
+com o `fly.toml` de hoje; e máquina agendada não serve para horário preciso, o que
+aqui não importa (um lembrete de 24h antes tolera sair 18:07).
+
+Mesmo com cron interno, o endpoint existe, porque cron que morre morre em silêncio:
+
+```
+POST /tarefas/lembretes
+  header X-Tarefa-Token: <segredo em fly secrets, comparado com hmac.compare_digest>
+  sem sessão, sem cookie
+  token errado responde 404, não 401 — o endpoint não se anuncia
+  responde {"reservados": n, "enviados": n, "descartados": n, "expirados": n}
+```
+
+`POST` e não `GET` para que um crawler não dispare a agenda inteira. E ele é
+idempotente (§11.6): pode ser chamado dez vezes seguidas. Contramedida contra o
+cron morto, de graça: a tela de Configurações mostra "último disparo: ontem às
+18:03" e vira faixa vermelha se passar de 48h. É a única coisa que vai perceber
+que parou.
+
+#### B. Baileys é Node num sistema Python
+
+Hoje: `Dockerfile` de uma linha útil sobre `python:3.12-slim`, um processo
+(`uvicorn`), deploy que é `flyctl deploy` e nada mais.
+
+| Forma | O que acontece | Veredito |
+|---|---|---|
+| **Node na mesma imagem** (Node instalado no `python:3.12-slim`, dois processos sob supervisord) | imagem de ~200 MB vira ~400+; dois runtimes para atualizar; dois logs no mesmo fluxo; `/saude` deixa de dizer se o WhatsApp está vivo | **Não.** Põe um runtime estranho dentro do artefato que carrega o prontuário |
+| **Segundo app no Fly com a imagem oficial da Evolution API** (que é Baileys empacotado), falando HTTP com o BDDente pela rede privada `.internal`, autenticado por `AUTHENTICATION_API_KEY` | o `Dockerfile` do BDDente **não muda**; `flyctl deploy` continua um comando só; a Evolution sobe uma vez e é atualizada fora de banda | **É esta** |
+
+Nota sobre a decisão: "Baileys" e "Evolution API" não são duas escolhas — a Evolution
+**é** o Baileys empacotado num serviço HTTP com sessão persistida. Usar a imagem
+pronta é usar Baileys sem colar Node dentro do app do prontuário. Se um dia a
+Evolution atrapalhar, o `Protocol` do §11.4 deixa trocar por Baileys cru sem
+reescrever a funcionalidade.
+
+#### C. A sessão é estado com disco, e o container não tem disco
+
+O Baileys guarda credenciais de sessão em arquivo (`creds.json` e as chaves do
+Signal). O `docs/OPERACAO.md` já diz que **"o container não tem disco que sobreviva
+a um restart"**, e este repositório faz **deploy automático a cada push na `main`**.
+Na forma ingênua, **todo deploy desconecta o WhatsApp** e exige ler o QR de novo —
+a funcionalidade quebrando sozinha toda vez que alguém corrige um botão.
+
+Saída: **sessão no Postgres**. A Evolution API já sabe guardar sessão em
+Postgres/Redis, e o banco deste projeto já tem backup, já é cifrado em repouso e já
+é restaurado por `scripts/restaurar.py` — é reusar um cofre que existe em vez de
+abrir um segundo. Com Evolution em app separado, a sessão vive dentro dela e o
+BDDente nunca a vê, que é mais limpo ainda; a tabela abaixo só existe se um dia se
+optar por Baileys cru dentro do app:
+
+```
+whatsapp_sessao
+  clinica_id    PK, FK clinica
+  provedor      varchar(20)
+  credenciais   bytea NOT NULL     -- CIFRADA com SECRET_KEY, nunca em claro
+  numero        varchar(24) NULL
+  conectado_em  timestamptz NULL
+  atualizado_em timestamptz
+```
+
+A sessão **é uma credencial**: cifrada em repouso com a `SECRET_KEY` (um dump
+vazado não pode entregar junto o WhatsApp da clínica), nunca em log, e a
+`auditoria` registra o *fato* (`CONECTAR`/`DESCONECTAR`), jamais o conteúdo — mesma
+família da regra 5 do `AGENTS.md`.
+
+#### D. LGPD: o que pode ir na mensagem e o que nunca vai
+
+Dado de saúde é dado pessoal sensível. Uma mensagem no WhatsApp é lida na tela de
+bloqueio, no ônibus, pelo marido, pela chefe. **"Consulta amanhã às 14h" é um
+compromisso; "canal no dente 36 amanhã às 14h" é prontuário exposto na notificação
+do celular.**
+
+**Pode ir:** primeiro nome (ou nome completo), dia da semana e data, hora,
+"amanhã"/"hoje", nome da clínica, nome da dentista, endereço, telefone da clínica.
+
+**Nunca vai:** nome do tratamento, número do dente, região, diagnóstico, qualquer
+resposta de anamnese, qualquer valor em R$, dívida ou parcela vencida, CPF, data de
+nascimento, o telefone da própria paciente, o nome de qualquer outra paciente — e
+**`agendamento.observacao`**.
+
+A observação merece nome próprio: é campo de texto livre, é onde ela escreve como
+escreve no papel, e **é onde a informação clínica vai vazar**, porque lá vai estar
+"canal 36" ou "avaliar extração". Útil na tela, proibida na mensagem. Dinheiro fica
+fora por um segundo motivo além da LGPD: mensagem com valor é cobrança, e cobrança
+por WhatsApp tem regra e custo de reputação próprios.
+
+**Onde a regra mora no código** — `app/agenda/mensagem.py`, barreira dupla:
+
+```python
+@dataclass(frozen=True)
+class ContextoDaMensagem:
+    """O ÚNICO caminho por onde dado chega numa mensagem de WhatsApp.
+
+    São nove campos, todos texto, todos de agenda ou de clínica. Dado clínico
+    (tratamento, dente, região, anamnese), dinheiro e documento NÃO têm campo
+    aqui e por isso não têm como chegar lá — inclusive `agendamento.observacao`,
+    que é texto livre e é onde a informação clínica vaza.
+    LGPD: dado de saúde é dado sensível, e mensagem é lida na tela de bloqueio.
+    """
+    primeiro_nome: str
+    nome: str
+    dia: str
+    dia_relativo: str
+    hora: str
+    clinica: str
+    dentista: str
+    endereco: str
+    telefone_clinica: str
+
+VARIAVEIS_PERMITIDAS = frozenset(...)   # os nomes dos nove campos acima
+```
+
+O tipo é a barreira estrutural: `renderizar()` recebe `ContextoDaMensagem`, **nunca
+um `dict`** — um `dict` deixa alguém escrever `**vars(agendamento)` em 2027 e
+ninguém percebe no review. A allowlist é **positiva** (o que pode), nunca negativa:
+lista negativa esquece o campo que for criado depois. E vai um teste de contrato que
+falha se `ContextoDaMensagem` ganhar campo fora da lista, com a LGPD escrita no
+docstring para quem for alargá-la ler o motivo antes de alargar.
+
+**Registro.** Todo envio grava linha em `auditoria` (`acao="ENVIAR"`,
+`entidade="lembrete"`) e o texto integral fica em `lembrete.texto` — o que protege a
+clínica se alguém disser que recebeu o que não recebeu, e que não contém dado
+clínico justamente por causa da allowlist.
+
+**Como ela pede para parar.** Toda mensagem termina com uma linha de saída. No
+primeiro corte ninguém lê as respostas (§11.10), então a frase tem de ser verdadeira:
+*"Se preferir não receber mais estes lembretes, é só avisar na recepção ou ligar
+para (51) ...."* — e existe um botão na ficha que grava `aceita_whatsapp = false` na
+hora. Prometer "responda PARAR" sem ninguém lendo é pior que não prometer. Quando
+entrar o webhook (Task 19), a frase muda e o desligamento vira automático.
+
+### 11.4 A decisão: Baileys, e o que ela obriga
+
+**Decidido pelo dono do projeto:** Baileys (via Evolution API), não a API oficial.
+Argumento dele: o volume é baixíssimo — uma clínica, poucos lembretes por dia.
+
+O que a pesquisa diz, honestamente, incluindo o que joga contra a decisão:
+
+- Bibliotecas como Baileys fazem engenharia reversa do protocolo do WhatsApp Web e
+  se passam por um navegador vinculado à conta. Os Termos de Serviço proíbem cliente
+  não oficial, sem ambiguidade. **Banimento é permanente e não há canal de apelação
+  que funcione.**
+- Os números que circulam em 2026 — "1 em cada 5 contas banidas em um ano",
+  "ferramentas duram de 2 a 8 semanas até a detecção", "68% das empresas indianas
+  relataram ao menos um ban em 12 meses" — vêm quase todos de **blogs de fornecedores
+  de API oficial**, que ganham dinheiro com esse medo. A taxa real não é pública.
+- O que **não** depende de fonte interessada, e é o que sustenta a decisão dele: a
+  detecção descrita em todas as fontes pesa **razão de resposta baixa**, **distância
+  no grafo de contatos** (mandar para estranhos) e **padrão temporal robótico**. Um
+  lembrete para paciente que já é contato da clínica, em volume de 5 a 20 por dia,
+  com intervalo irregular, é o perfil oposto do que a detecção procura. O risco não é
+  zero, mas o volume dele é o de menor risco possível dentro da via não oficial.
+
+Por isso a decisão é aceita **com estas quatro condições, que não são opcionais**:
+
+1. **Número secundário, nunca o da clínica.** Um chip novo (R$ 10–20), "Consultório
+   Dra. Kátia — avisos". É a única mitigação que de fato mitiga: se o número cair, a
+   clínica perde um robô, não a porta da frente de 30 anos que está na fachada, no
+   Google e no WhatsApp de ~500 pacientes. Custo: a mensagem precisa dizer o número
+   real para responder ("não responda por aqui — ligue para (51) ...").
+2. **Volume e forma humanos.** Teto de 20 mensagens/dia, intervalo **aleatório de 20
+   a 90 segundos** entre elas, nunca no mesmo segundo, nunca para quem nunca falou com
+   a clínica. Isso está na Task 14 como requisito, com teste.
+3. **Playbook de queda em `docs/OPERACAO.md`:** como se percebe (a tela mostra
+   `DESCONECTADO` e os envios falham), como se reconecta (ler o QR de novo), e o
+   critério de desistir — **duas quedas em 30 dias e migra-se para a oficial**, sem
+   nova discussão.
+4. **O código é agnóstico desde a primeira linha.** `app/agenda/whatsapp/` expõe uma
+   interface só:
+
+   ```python
+   class Provedor(Protocol):
+       def estado(self) -> EstadoDaConexao: ...
+       def enviar(self, *, numero: str, texto: str) -> Envio: ...   # Envio(ok, id_externo, erro)
+   ```
+
+   com três implementações: `fake.py` (testes e desenvolvimento), `evolution.py`
+   (a que roda) e `oficial.py` (a saída de emergência). Qual roda é variável de
+   ambiente. **Migrar depois de um banimento é mudar um segredo e reiniciar, não
+   reescrever a funcionalidade.**
+
+Para referência, se um dia a condição 3 for acionada: a API oficial custa da ordem
+de **US$ 0,008 por mensagem** de categoria *utility* no Brasil — ~US$ 0,80/mês com
+100 consultas, menos que os US$ 3–5 da máquina acordada que a via não oficial exige.
+O que ela cobra em troca é burocracia: verificação de negócio, aprovação de template
+(24–48h) e, se o número já estiver ativo no app, migração por Coexistência.
+
+### 11.5 Schema da Fase 2
+
+```
+lembrete
+  id                serial PK
+  clinica_id        FK clinica     NOT NULL index
+  agendamento_id    FK agendamento NOT NULL index
+  tipo              tipo_lembrete  NOT NULL          -- VESPERA (só ele hoje)
+  numero            varchar(24)    NULL              -- para onde foi, congelado no envio
+  texto             text           NULL              -- exatamente o que saiu; NULL enquanto pendente
+  modelo_id         FK modelo_mensagem NULL
+  situacao          situacao_lembrete NOT NULL default 'PENDENTE'
+  motivo            text           NULL              -- por que não saiu (§11.6)
+  tentativas        smallint       NOT NULL default 0
+  provedor          varchar(20)    NULL              -- 'evolution' | 'oficial' | 'fake'
+  id_externo        varchar(80)    NULL
+  agendado_para     timestamptz    NOT NULL
+  enviado_em        timestamptz    NULL
+  criado_em         timestamptz    NOT NULL default now()
+  excluido_em       timestamptz    NULL
+
+  UNIQUE (agendamento_id, tipo)                      -- ← a idempotência mora aqui
+        name=uq_lembrete_um_por_agendamento
+  INDEX ix_lembrete_fila (clinica_id, situacao, agendado_para)
+
+enum tipo_lembrete      = VESPERA
+enum situacao_lembrete  = PENDENTE | ENVIANDO | ENVIADO | FALHOU
+                        | DESCARTADO | EXPIRADO | CANCELADO
+
+modelo_mensagem
+  id             serial PK
+  clinica_id     FK clinica NOT NULL index
+  codigo         varchar(30) NOT NULL           -- 'LEMBRETE_VESPERA'
+  texto          text NOT NULL
+  atualizado_por FK usuario NULL
+  atualizado_em  timestamptz
+  UNIQUE (clinica_id, codigo)
+
+configuracao_clinica                          -- uma linha por clínica, colunas tipadas
+  clinica_id            PK, FK clinica
+  lembrete_ativo        boolean  NOT NULL default false   -- a chave geral (§11.7); nasce DESLIGADA
+  lembrete_hora         time     NOT NULL default '18:00'
+  lembrete_horas_antes  smallint NOT NULL default 24
+  lembrete_teto_diario  smallint NOT NULL default 20
+  whatsapp_provedor     varchar(20) NULL
+  endereco              varchar(200) NULL                 -- variável {endereco}
+  telefone_clinica      varchar(24)  NULL                 -- variável {telefone_clinica}
+  atualizado_em         timestamptz
+
+agendamento
+  + avisar_avulso  boolean NOT NULL default true   -- só significa algo quando paciente_id IS NULL
+
+paciente
+  + aceita_whatsapp  boolean NULL             -- NULL = nunca perguntamos, e NULL não recebe
+```
+
+Quatro decisões de schema, cada uma com motivo:
+
+- **`configuracao_clinica` tem colunas tipadas, não chave/valor.** Neste repositório
+  o `tests/test_schema.py` afirma colunas, e o schema é a documentação. Chave/valor
+  genérico é `varchar` para tudo e invisível ao teste.
+- **Segredo nenhum entra em tabela.** `AUTHENTICATION_API_KEY` da Evolution vive em
+  `fly secrets`, como a `SECRET_KEY`. A única exceção possível é a sessão do QR, que
+  nasce em tempo de execução — e mesmo essa não existe se a Evolution guardar a
+  própria sessão.
+- **`lembrete_ativo` nasce `false`.** Deploy que já sai mandando mensagem para
+  paciente é a definição de acidente.
+- **`numero` e `texto` ficam congelados no `lembrete`.** Se ela corrigir o telefone
+  depois, o registro continua dizendo para onde foi de fato. Mesma filosofia do
+  prontuário: o registro guarda o que aconteceu, não o estado de agora.
+
+### 11.6 Idempotência: no schema, não na prosa
+
+**O que impede a mesma paciente de receber duas vezes** é `UNIQUE (agendamento_id,
+tipo)`. Não é um `if`, não é um lock, não é disciplina — é o banco recusando a
+segunda linha. Vale se o cron disparar duas vezes, se houver duas máquinas durante
+um deploy, e se ela clicar em "enviar agora" enquanto o cron roda.
+
+O disparo é em duas fases, e a ordem importa:
+
+**Fase 1 — reservar (só banco, nenhuma rede).** Para cada agendamento entre
+`agora + horas_antes` e o fim daquele dia, com situação `MARCADO` ou `CONFIRMADO` e
+não excluído, tenta inserir um `lembrete` `PENDENTE`. **Commit.** Se o processo
+morrer aqui, ninguém recebeu nada. Já nesta fase se decide quem não vai receber, e a
+linha é criada assim mesmo, `DESCARTADO`, com `motivo`:
+
+```
+sem_permissao     paciente da base com aceita_whatsapp != true
+sem_numero        nenhum telefone aproveitável — da ficha ou o avulso (§11.8)
+avulso_recusou    avisar_avulso = false
+numero_suspeito   o número existe mas não passa na régua
+teto_diario       passou de lembrete_teto_diario naquele dia
+```
+
+Guardar o descarte é o que permite a tela dizer *"8 pacientes de amanhã não vão
+receber: 6 sem permissão, 2 sem número"* — informação sobre a qual ela consegue agir
+hoje, com a paciente na cadeira.
+
+**Fase 2 — despachar (uma mensagem por vez).** Para cada `PENDENTE`, um
+`UPDATE ... SET situacao='ENVIANDO' WHERE id=:id AND situacao='PENDENTE' RETURNING id`,
+**com commit antes de tocar na rede**. Quem ganhar o `UPDATE` manda. Depois:
+`ENVIADO` + `enviado_em` + `id_externo`, ou `FALHOU` + `motivo` + `tentativas += 1`.
+Entre um envio e o seguinte, pausa aleatória de 20 a 90 segundos (§11.4, condição 2).
+
+Fica uma janela impossível de fechar: a mensagem sai e o processo morre antes do
+commit. A linha fica `ENVIANDO` para sempre. **Regra: `ENVIANDO` nunca é reenviado
+automaticamente.** Vai para a tela como *"1 lembrete: não sei se saiu"*, para uma
+pessoa decidir. A garantia escolhida é **no máximo uma vez, nunca ao menos uma
+vez** — mandar duas vezes queima a paciente e é exatamente o padrão que a detecção
+procura. Na dúvida, não manda.
+
+**O lembrete cujo horário já passou.** Um lembrete só sai se ainda faltar um mínimo
+para a consulta — **proposto: 6 horas**:
+
+- Faltam 24h: sai, e o texto diz "amanhã".
+- Faltam 9h (a máquina não acordou ontem): sai, e o texto diz **"hoje"** — porque
+  `{dia_relativo}` é derivado da distância real no momento do envio, não da intenção
+  de ontem. Um lembrete atrasado que diz a verdade ainda ajuda; um que chega tarde
+  dizendo "amanhã" é pior que nenhum.
+- Faltam menos de 6h, ou a consulta já passou: `EXPIRADO`, ninguém recebe. E a tela
+  mostra *"3 lembretes expiraram — o disparo não rodou ontem"*, que é o alarme de
+  cron morto que realmente vai ser lido.
+
+**Desmarcou depois de reservado.** Na hora de despachar, confere-se de novo a
+situação do agendamento. Desmarcou às 17h, não recebe às 18h: `CANCELADO`,
+`motivo='desmarcado'`. Tem teste.
+
+### 11.7 A chave geral: desligar o envio por completo
+
+Requisito do dono: **um botão nas Configurações que desliga totalmente o envio.**
+É `configuracao_clinica.lembrete_ativo`, e ele governa as duas fases:
+
+- **Desligado, `reservar()` nem roda.** Nenhuma linha de `lembrete` é criada, nada
+  entra em fila. `despachar()` também recusa, como segunda tranca, para o caso de
+  sobrar `PENDENTE` de antes.
+- **Religar não dispara acumulado.** Esta é a propriedade que importa e ela é
+  consequência do desenho, não de um `if` extra: **a fila é derivada da agenda, não
+  acumulada**. Ao religar, o próximo disparo olha os agendamentos das próximas
+  `horas_antes` horas e reserva a partir do zero. O que ficou para trás está sob o
+  corte de 6h e vira `EXPIRADO`, nunca uma enxurrada de mensagens sobre consultas
+  que já aconteceram.
+- **Desligar não apaga nada.** Os `lembrete` já enviados continuam no histórico —
+  é registro do que aconteceu.
+- **Enquanto está desligado, a agenda diz isso** numa linha discreta no topo:
+  *"lembretes de WhatsApp desligados"*, com link para religar. Silêncio que parece
+  funcionamento é a pior forma de desligar: ela confia que a paciente foi avisada e
+  a paciente não foi.
+- **Ligar e desligar geram auditoria** com `antes`/`depois`. É a configuração cuja
+  mudança tem consequência para terceiros — precisa dizer quem mexeu e quando.
+
+Diferença deliberada entre esta chave e o `Desconectar` do WhatsApp: a chave geral
+para de mandar e **mantém a conexão**; `Desconectar` derruba a sessão e obriga a ler
+o QR de novo. Quem quer só parar por uma semana usa a chave; quem trocou de celular
+usa o `Desconectar`.
+
+### 11.8 Telefone que não presta
+
+O módulo `app/pacientes/telefone.py` já sabe que número ruim existe:
+`parecer_incompleto()` (menos de 8 dígitos), `parecer_longo()` (mais de 11), e
+`formatar()` com a regra da casa no docstring — *"nunca inventa dígito para fazer
+caber"*. Os cadastros migrados carregam `telefone_incompleto` em `revisar_motivo`.
+
+O WhatsApp é mais exigente que a tela: precisa de `55` + DDD + 8 ou 9 dígitos. Regra
+nova, **no mesmo módulo, porque régua de telefone é uma só neste sistema** — e ela
+vale igual para o telefone da ficha e para o `telefone_avulso`:
+
+```
+numero_para_whatsapp(numero) -> str | None
+    10 ou 11 dígitos e DDD entre 11 e 99  ->  '55' + número
+    qualquer outra coisa                  ->  None
+```
+
+E o que ela **não** faz, de propósito:
+
+- **Não acrescenta o nono dígito.** Um número de 10 dígitos do cadastro de 2005 pode
+  ser fixo (que não tem WhatsApp) ou celular anterior ao nono dígito. Somar um "9" é
+  inventar dígito — a coisa que este módulo se recusa a fazer desde o primeiro dia.
+- **Não chuta DDD.** Número de 8 dígitos de 1996 não tem DDD; supor "51" acerta em
+  Porto Alegre e erra em quem se mudou.
+- **Só o telefone principal.** Mandar para os três números da mesma pessoa é ruído
+  para ela e é padrão de robô para a Meta.
+
+Quem ficar de fora vira `DESCARTADO` com motivo e aparece na tela de Configurações
+**com link para a ficha** — onde corrigir o telefone já tira a marca de
+`revisar_motivo`. O caminho é: a tela mostra quem não vai receber → ela corrige na
+ficha → no dia seguinte a pessoa recebe.
+
+### 11.9 Tasks da Fase 2, em ordem
+
+As tasks 10 a 16 são construídas e testadas com um **provedor de mentira**, que
+escreve a mensagem no log em vez de enviar. Reserva, idempotência, expiração,
+consentimento, chave geral, templates e tela ficam prontos e cobertos por teste
+**sem uma mensagem real e sem o chip novo existir**.
+
+```
+Fase 5 — o encanamento (nada é enviado)
+ 10. Consentimento: paciente.aceita_whatsapp, agendamento.avisar_avulso, selo e botões
+ 11. numero_para_whatsapp() em pacientes/telefone.py
+ 12. Tabelas lembrete, modelo_mensagem, configuracao_clinica + migration
+ 13. app/agenda/mensagem.py — ContextoDaMensagem, allowlist, renderizar()
+
+Fase 6 — o disparo (provedor de mentira)
+ 14. agenda/lembretes.py — reservar() e despachar()
+ 15. POST /tarefas/lembretes + cron interno + min_machines_running = 1
+ 16. Tela /configuracoes, com a chave geral
+
+Fase 7 — o WhatsApp de verdade
+ 17. Evolution API como app separado no Fly + provedor evolution.py
+ 18. Conectar/desconectar na tela (QR)
+ 19. Parar de receber: botão hoje, webhook depois
+ 20. Operação: OPERACAO.md, playbook de queda, primeiro envio real
+```
+
+#### Task 10 — Consentimento
+
+**Requisitos**
+- [ ] `paciente.aceita_whatsapp boolean NULL` e `agendamento.avisar_avulso boolean NOT NULL default true`; migration.
+- [ ] Três opções explícitas no cadastro e na edição de paciente (não um checkbox, que confunde "não marcou" com "disse não").
+- [ ] No formulário do horário, ao lado do telefone avulso: `[x] avisar no WhatsApp na véspera`.
+- [ ] Selo no cartão: "sem permissão de WhatsApp · perguntar" com botão de um clique que grava `true`; selo cinza `sem lembrete` para quem não tem número.
+- [ ] Botão na ficha que grava `false` ("pediu para não receber").
+- [ ] Auditoria com `antes`/`depois` — consentimento é justamente o que se precisa provar depois.
+- [ ] Os 5.559 migrados ficam `NULL`. **Nenhum backfill, nenhum default `true`.**
+
+**Testes**
+- [ ] paciente migrado nasce `NULL` e `NULL` não recebe
+- [ ] avulso com telefone e `avisar_avulso = true` recebe
+- [ ] avulso sem telefone **é agendado normalmente** e não recebe
+- [ ] avulso que virou paciente nasce com `aceita_whatsapp = NULL`
+- [ ] gravar `true` e `false` deixa os dois lados na auditoria
+- [ ] paciente de outra clínica dá 404
+
+#### Task 11 — `numero_para_whatsapp()`
+
+**Requisitos**
+- [ ] Fica em `app/pacientes/telefone.py` — uma régua só, para ficha e avulso.
+- [ ] 10 ou 11 dígitos com DDD 11–99 → `55…`; o resto → `None`.
+- [ ] Não acrescenta nono dígito, não chuta DDD, não corta número longo.
+
+**Testes**
+- [ ] `'51999998888'` → `'5551999998888'`
+- [ ] `'5133133087'` (10 dígitos) → `'555133133087'` — **sem** virar 11
+- [ ] `'36535051'` (8 dígitos, sem DDD) → `None`
+- [ ] `'32484554844055454'` (dois números colados) → `None`
+- [ ] DDD implausível (`'01'`, `'00'`) → `None`
+- [ ] número já com `55` na frente não ganha outro `55`
+
+#### Task 12 — As tabelas
+
+**Requisitos**
+- [ ] Modelos conforme §11.5, em `app/agenda/models.py` — lembrete é da agenda.
+- [ ] Enums criados **na migration** com `.create(bind, checkfirst=True)`, `create_type=False` no model.
+- [ ] `UNIQUE (agendamento_id, tipo)` e o índice da fila.
+- [ ] `configuracao_clinica` semeada com uma linha por clínica, `lembrete_ativo = false`.
+- [ ] `modelo_mensagem` semeado com **um** modelo, `LEMBRETE_VESPERA`.
+- [ ] `tests/test_schema.py` ganha as tabelas novas.
+
+**Testes**
+- [ ] colunas, enums, nulabilidade e os dois índices
+- [ ] **dois lembretes do mesmo (agendamento, tipo) → `IntegrityError`** — o teste que justifica a constraint existir
+- [ ] `upgrade`/`downgrade` limpos, enums somem no downgrade
+- [ ] a semente cria configuração e modelo, e rodar a migration duas vezes não duplica
+
+#### Task 13 — `agenda/mensagem.py`
+
+**Requisitos**
+- [ ] `ContextoDaMensagem` congelado, nove campos, docstring com o motivo LGPD.
+- [ ] `VARIAVEIS_PERMITIDAS` positiva, derivada dos campos do dataclass.
+- [ ] `renderizar(texto, contexto) -> str`; `validar(texto) -> list[str]` devolve as desconhecidas.
+- [ ] Variável desconhecida **no envio** levanta `ModeloInvalido` — ninguém recebe texto quebrado.
+- [ ] Variável válida com valor vazio: mesma coisa. *"Te espero em , amanhã"* é tão quebrado quanto.
+- [ ] `de_agendamento(...)` é a única fábrica, e **não** recebe o objeto `Agendamento` inteiro — recebe os campos de que precisa. Serve igual para paciente e para avulso.
+
+**Testes**
+- [ ] renderiza os nove campos
+- [ ] `{tratamento}` levanta `ModeloInvalido`
+- [ ] `{endereco}` vazio levanta `ModeloInvalido`
+- [ ] `{dia_relativo}` é "amanhã" a 24h e "hoje" a 9h da consulta
+- [ ] horário avulso usa `nome_avulso` no `{primeiro_nome}`
+- [ ] **contrato:** `ContextoDaMensagem` não tem campo fora da allowlist (falha se alguém acrescentar `observacao`, `procedimento`, `dente`, `valor`, `cpf`)
+- [ ] **contrato:** `mensagem.py` não importa `clinico.models`, `financeiro.models` nem `catalogo.models`
+
+#### Task 14 — `agenda/lembretes.py`
+
+**Requisitos**
+- [ ] `reservar(sessao, *, clinica_id, agora) -> Resumo` — fase 1 do §11.6, `agora` por parâmetro (nunca `date.today()` por dentro).
+- [ ] `despachar(sessao, *, clinica_id, agora, provedor) -> Resumo` — fase 2, uma por vez.
+- [ ] **As duas recusam de saída se `lembrete_ativo` for `false`** (§11.7).
+- [ ] `IntegrityError` na reserva é caminho normal, não erro: `rollback` do savepoint e segue.
+- [ ] Provedor injetado; `fake.py` registra o que "enviaria".
+- [ ] `ENVIANDO` nunca é retomado automaticamente.
+- [ ] Corte de 6h; `EXPIRADO` para o que passou.
+- [ ] Reconfere a situação do agendamento antes de mandar.
+- [ ] **Pausa aleatória de 20 a 90 s entre envios e teto diário** — condição 2 do §11.4.
+- [ ] Auditoria por envio.
+
+**Testes**
+- [ ] rodar duas vezes seguidas manda **uma** mensagem (o teste mais importante da fase)
+- [ ] reservar duas vezes não cria duas linhas
+- [ ] paciente sem permissão vira `DESCARTADO/sem_permissao`
+- [ ] telefone imprestável vira `DESCARTADO/sem_numero` — na ficha e no avulso
+- [ ] consulta a 3h vira `EXPIRADO`; a 9h é enviada com "hoje"
+- [ ] agendamento desmarcado depois de reservado vira `CANCELADO`, sem envio
+- [ ] falha do provedor deixa `FALHOU` com motivo e `tentativas = 1`, e **não** reenvia sozinho
+- [ ] linha em `ENVIANDO` é ignorada pela execução seguinte
+- [ ] **`lembrete_ativo = false` não cria linha nenhuma e não manda nada**
+- [ ] **religar depois de uma semana desligado não dispara acumulado**
+- [ ] passar do teto diário vira `DESCARTADO/teto_diario`
+- [ ] dado de outra clínica nunca entra
+
+#### Task 15 — O endpoint e o gatilho
+
+**Requisitos**
+- [ ] `POST /tarefas/lembretes` com `X-Tarefa-Token` e `hmac.compare_digest`; token errado → 404.
+- [ ] Responde contadores em JSON; **nunca nome de paciente no corpo** (isso vai para log de terceiro).
+- [ ] `TAREFAS_TOKEN` em `app/config.py` e `fly secrets`.
+- [ ] `min_machines_running = 1` no `fly.toml`, com o custo escrito no `OPERACAO.md`.
+- [ ] Cron interno no container + o endpoint como gatilho manual/externo de reserva.
+
+**Testes**
+- [ ] sem token → 404; token errado → 404; token certo → 200 com contadores
+- [ ] chamar duas vezes seguidas não duplica envio
+- [ ] a resposta não contém nome nem telefone
+- [ ] não exige sessão (é máquina que chama)
+
+#### Task 16 — Tela `/configuracoes`
+
+Detalhada no §12. Requisitos e testes lá.
+
+#### Task 17 — Evolution API de verdade
+
+**Requisitos**
+- [ ] `app/agenda/whatsapp/` com o `Protocol` do §11.4 e `fake.py` já pronto.
+- [ ] `evolution.py` falando com o app separado pela rede privada `.internal`.
+- [ ] `AUTHENTICATION_API_KEY` em `fly secrets`; escolha do provedor por variável de ambiente, padrão `fake`.
+- [ ] Erro do provedor vira `Envio(ok=False, erro=...)`; **nunca sobe exceção que derrube o disparo inteiro** — uma paciente com número ruim não pode impedir as outras sete.
+- [ ] Timeout curto e explícito em toda chamada de rede.
+- [ ] `Dockerfile` do BDDente **inalterado**.
+
+**Testes**
+- [ ] o provedor é escolhido pela configuração, e o padrão é `fake`
+- [ ] falha de rede vira `FALHOU`, não exceção
+- [ ] uma falha no meio da fila não impede as seguintes
+- [ ] nenhum teste da suíte toca a rede de verdade (contrato)
+
+#### Task 18 — Conectar e desconectar (QR)
+
+**Requisitos**
+- [ ] Botão "Conectar" gera o QR e o mostra; renova sozinho enquanto a tela está aberta.
+- [ ] Sessão nunca em log, nunca em auditoria; se ficar no BDDente, cifrada com `SECRET_KEY`.
+- [ ] Estado visível: `CONECTADO (número) · DESCONECTADO · AGUARDANDO QR`, com a data do último envio bem-sucedido.
+- [ ] "Desconectar" **remove** a credencial — é o único caso em que remover é o certo: credencial revogada é lixo, e a regra do `excluido_em` é sobre dado de paciente, não sobre segredo. Fica anotado como exceção consciente, e o fato vai para a auditoria.
+- [ ] Faixa vermelha na agenda quando cai, com link para reconectar.
+
+**Testes**
+- [ ] a sessão nunca aparece em claro no banco
+- [ ] auditoria registra conectar/desconectar **sem** o payload
+- [ ] desconectado, o disparo não tenta enviar: tudo vira `FALHOU/desconectado`
+- [ ] a faixa aparece na agenda quando o estado é desconectado
+
+#### Task 19 — Parar de receber
+
+**Requisitos**
+- [ ] Botão na ficha já existe desde a Task 10; aqui entra o caminho automático.
+- [ ] Webhook de resposta: "PARAR", "SAIR", "CANCELAR", sem caixa e sem acento → `aceita_whatsapp = false` + auditoria.
+- [ ] Só então o rodapé da mensagem passa a dizer "responda PARAR".
+- [ ] O webhook **não** guarda o conteúdo das respostas — lê e descarta. Guardar conversa de paciente é abrir um prontuário paralelo que ninguém pediu.
+
+**Testes**
+- [ ] "parar", "PARAR", "Parar." e "sair" desligam
+- [ ] "obrigada!" não desliga
+- [ ] desligado não recebe no dia seguinte
+- [ ] o corpo da resposta não é gravado em lugar nenhum
+
+#### Task 20 — Operação
+
+**Requisitos**
+- [ ] `docs/OPERACAO.md`: o chip novo, o custo do `min_machines_running = 1`, como conferir se rodou, e o **playbook de queda** (§11.4).
+- [ ] `AGENTS.md`: a regra da allowlist de variáveis, junto das invioláveis.
+- [ ] Primeiro envio real **para o número dela mesma**, com um agendamento de teste, antes de qualquer paciente.
+- [ ] Ligar a chave geral é o último passo, e é ela quem liga.
+- [ ] `ruff` e `pytest` limpos, saída colada.
+
+### 11.10 Limites conscientes da Fase 2
+
+- **Um lembrete só, o da véspera.** Sem confirmação na marcação, sem "2h antes", sem
+  aniversário, sem recall de limpeza. O encanamento serve para todos; o primeiro
+  corte manda um.
+- **Ninguém lê as respostas no primeiro corte.** Por isso a mensagem não pede
+  confirmação — pede que ligue se não puder vir.
+- **Sem mídia, sem botão, sem link de confirmar.**
+- **Sem reenvio automático de falha.** Falhou, aparece na tela, ela liga. Robô
+  insistindo é robô banido.
+- **No máximo uma vez, nunca ao menos uma vez.**
+- **Sem relatório de entrega e leitura.**
+- **Só o telefone principal**, e só quem autorizou — que no começo é quase ninguém, e
+  isso é a lei funcionando, não um bug.
+- **`min_machines_running` passa a 1**, e é custo direto da escolha por Baileys.
+
+---
+
+## 12. Configurações: onde a tela mora
+
+**Uma tela própria em `/configuracoes`, sem item na navegação principal**, alcançada
+por um link no rodapé da lateral (embaixo do crachá, ao lado do "Sair") e pelo aviso
+da agenda quando a conexão cai.
+
+A lateral hoje tem **seis** itens — Pacientes, Odontograma, Atendimentos,
+Tratamentos, Financeiro, Recebimentos — e a Agenda faz **sete**. As alternativas e
+por que caem:
+
+| Alternativa | Por que não |
+|---|---|
+| **Oitavo item no menu** | O menu lateral é a lista das coisas que ela faz **com paciente**. Configuração é usada duas vezes por ano — quando o WhatsApp cai. Oito itens é onde uma barra lateral deixa de ser lida e passa a ser varrida |
+| **Dentro de `/perfil`** | `/perfil` é sobre *a pessoa logada*: nome, senha, sessões. O WhatsApp é *do consultório*. Misturar faz a tela de perfil crescer sem fim |
+
+E o argumento decisivo: **configuração não se acha pelo menu, se acha pelo
+problema.** Quando o WhatsApp cai, o caminho não é ela lembrar que existe uma aba; é
+a agenda mostrar a faixa vermelha *"o WhatsApp desconectou — reconectar"* que leva
+direto lá.
+
+### O que a tela tem
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  Configurações                                                   │
+│                                                                  │
+│  ── WhatsApp ──────────────────────────────────────────────────  │
+│   ● Conectado como (51) 99999-9999                               │
+│     Enviando pelo WhatsApp conectado por QR (não oficial)        │
+│     Último envio: hoje às 18:03                                  │
+│                          [ Ler QR de novo ]  [ Desconectar ]     │
+│                                                                  │
+│  ── Lembretes ─────────────────────────────────────────────────  │
+│   ( ) LIGADO      (•) DESLIGADO   ← a chave geral                │
+│       Desligado, ninguém recebe nada. Religar não manda o que    │
+│       ficou para trás: a fila é a agenda de amanhã, não um saco  │
+│       de mensagens acumuladas.                                   │
+│                                                                  │
+│   Disparo às [ 18:00 ]   Antecedência: 24 h   Teto: 20/dia       │
+│   Último disparo: ontem às 18:03  ✓                              │
+│                                                                  │
+│   Próximo disparo — 12 consultas amanhã:                         │
+│     8 vão receber                                                │
+│     3 sem permissão de WhatsApp   → ver quem                     │
+│     1 sem número aproveitável     → ver quem                     │
+│                              [ Enviar agora os de amanhã ]       │
+│                                                                  │
+│  ── Texto da mensagem ─────────────────────────────────────────  │
+│   [ editor do modelo, variáveis e prévia — §13 ]                 │
+│                                                                  │
+│  ── Últimos envios ────────────────────────────────────────────  │
+│   28/08 18:03  MARIA SILVA      enviado                          │
+│   28/08 18:02  JÚLIA PENA       falhou — número sem WhatsApp     │
+│   ...                                            (50 últimos)    │
+│                                                                  │
+│  ── Consultório ───────────────────────────────────────────────  │
+│   Endereço [ ................ ]   Telefone [ ............... ]   │
+│   (usados nas variáveis {endereco} e {telefone_clinica})         │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+Seis requisitos que não são decoração:
+
+- **A chave geral é o primeiro controle do bloco**, com o texto explicando que
+  religar não dispara acumulado. Chave que a pessoa tem medo de mexer não é chave.
+- **A tela diz por qual caminho está enviando**, em uma linha. Quem corre o risco de
+  perder o número tem direito de ver na tela qual risco está correndo.
+- **"Enviar agora os de amanhã"** é o cinto de segurança quando o cron falha. É
+  idempotente por construção (§11.6), então clicar duas vezes não manda duas vezes —
+  e é justamente por isso que pode existir sem medo.
+- **Quem não vai receber é uma lista com link para a ficha.** É a única parte da tela
+  sobre a qual ela consegue agir hoje.
+- **"Último disparo" vira faixa vermelha depois de 48h.** É o monitor do cron, e é de
+  graça.
+- **Nenhum segredo é exibido nem editável na tela.**
+
+### Task 16 — requisitos e testes
+
+**Requisitos**
+- [ ] `GET /configuracoes` e `POST /configuracoes` (formulário, 303 de volta), com `usuario_atual`.
+- [ ] Link no rodapé da lateral, **sem** item na navegação; `tests/test_layout.py` afirma as duas coisas.
+- [ ] A chave geral grava `lembrete_ativo` e vai para a auditoria.
+- [ ] Faixa na agenda quando desconectado, quando o último disparo passou de 48h, e linha discreta quando a chave está desligada.
+- [ ] `POST /configuracoes/enviar-agora` chama o mesmo `reservar`/`despachar` do cron.
+- [ ] A prévia da mensagem usa **dados de exemplo**, nunca uma paciente real — prévia é tela, e tela com nome de paciente vira print no grupo da família.
+
+**Testes**
+- [ ] a tela abre, e **não** acrescenta item na navegação
+- [ ] o link para `/configuracoes` está no rodapé da lateral
+- [ ] ligar/desligar grava e aparece na auditoria com `antes`/`depois`
+- [ ] com a chave desligada, "Enviar agora" não manda nada
+- [ ] a agenda mostra a linha "lembretes desligados" quando desligado
+- [ ] "Enviar agora" duas vezes seguidas manda uma vez só
+- [ ] a lista de quem não recebe traz o motivo e o link para a ficha
+- [ ] disparo velho vira faixa vermelha na agenda
+- [ ] nenhum segredo (token, chave, sessão) aparece no HTML
+- [ ] sem sessão, redireciona para o login
+
+---
+
+## 13. Templates de mensagem
+
+**Quantos existem: um.** `LEMBRETE_VESPERA`. Pelo mesmo critério que deixou
+`procedimento_id` fora da agenda no primeiro corte: modelo que nada dispara é peso
+morto. O de confirmação na marcação é o próximo, e o encanamento já o comporta sem
+schema novo.
+
+Ele vive em `modelo_mensagem` (tabela), não numa constante, porque o requisito é que
+**ela** edite o texto — e o texto dela vai ser melhor que o meu.
+
+Texto inicial semeado pela migration:
+
+```
+Oi {primeiro_nome}! Passando para lembrar do seu horário
+{dia_relativo}, {dia}, às {hora}, com a {dentista}.
+
+{clinica} — {endereco}
+Se não puder vir, me avise: {telefone_clinica}
+```
+
+### As variáveis
+
+| Variável | Vale | De onde vem |
+|---|---|---|
+| `{primeiro_nome}` | Maria | `paciente.nome` ou `nome_avulso`, primeira palavra |
+| `{nome}` | MARIA SILVA SANTOS | `paciente.nome` ou `nome_avulso` |
+| `{dia}` | quinta-feira, 28 de agosto | `agendamento.dia` |
+| `{dia_relativo}` | amanhã · hoje | distância real **no momento do envio** |
+| `{hora}` | 14:00 | `agendamento.inicio` |
+| `{clinica}` | Consultório Dra. Kátia | `clinica.nome` |
+| `{dentista}` | Dra. Kátia | `usuario.nome` |
+| `{endereco}` | Rua X, 100 — Bairro | `configuracao_clinica.endereco` |
+| `{telefone_clinica}` | (51) 3333-3333 | `configuracao_clinica.telefone_clinica` |
+
+`{primeiro_nome}` é o padrão de propósito: *"MARIA DA SILVA SANTOS, seu horário"*
+soa como cobrança de banco. `{dia_relativo}` é calculado no envio, não na reserva —
+é o que faz o lembrete atrasado dizer "hoje" em vez de mentir "amanhã".
+
+### Variável que não existe
+
+Duas situações, dois destinos, e eles não podem ser o mesmo:
+
+**1. Ao salvar o modelo — recusa na entrada.** O formulário valida e volta com a
+mensagem: *"não existe a variável `tratamento`. As que existem são: primeiro_nome,
+nome, dia, dia_relativo, hora, clinica, dentista, endereco, telefone_clinica."* É
+aqui que o erro custa menos, e é a única barreira que impede alguém de escrever
+`{observacao}` achando que vai funcionar.
+
+**2. No envio — o lembrete não sai.** Se mesmo assim sobrar um `{x}` desconhecido
+(modelo gravado por uma versão anterior, variável removida do código):
+`situacao = FALHOU`, `motivo = 'modelo_invalido'`, **ninguém recebe**, e a tela mostra
+*"o texto da mensagem tem um erro"* com link para corrigir. As duas alternativas são
+piores: mandar `Olá {primeiro_nome}` para a paciente é a assinatura do robô malfeito,
+e apagar o marcador em silêncio produz frase truncada sem ninguém saber por quê.
+**A clínica é a cara que aparece na mensagem.**
+
+Variável **válida mas vazia** cai na mesma regra — *"Te espero em , amanhã"* é tão
+quebrado quanto. Uma regra só, fácil de testar, fácil de lembrar.
+
+### O que nunca pode virar variável
+
+Nome do tratamento · número do dente · região · diagnóstico · qualquer resposta de
+anamnese · valor em R$ · dívida ou parcela vencida · CPF · data de nascimento · o
+telefone da própria paciente · nome de qualquer outra paciente ·
+**`agendamento.observacao`**.
+
+A observação é a que precisa ser dita em voz alta: é texto livre, é onde ela escreve
+como escreveria no papel, e é onde vai estar "canal 36" ou "avaliar extração".
+
+**Onde a regra mora, para não se perder com o tempo** — `app/agenda/mensagem.py`, e
+são três camadas:
+
+1. **O tipo.** `renderizar()` recebe `ContextoDaMensagem`, dataclass congelado de
+   nove campos de texto — **nunca um `dict`**. Não havendo campo, não há caminho.
+2. **A allowlist positiva**, derivada dos campos do dataclass. Positiva, não negativa:
+   lista do que é proibido esquece o campo criado em 2027.
+3. **O teste de contrato**, que falha se `ContextoDaMensagem` ganhar campo fora da
+   lista, com a razão LGPD no docstring — para quem for alargá-la ler o motivo
+   **antes** de alargar. Mais um teste que falha se `mensagem.py` importar
+   `clinico.models`, `financeiro.models` ou `catalogo.models`.
+
+E uma linha em `AGENTS.md`, junto das regras que não se quebram:
+
+> **Mensagem para paciente só carrega o que está em
+> `agenda/mensagem.py::ContextoDaMensagem`.** Nome, dia, hora, dados da clínica.
+> Nunca tratamento, dente, valor, documento nem a observação do horário — dado de
+> saúde é dado sensível, e mensagem é lida na tela de bloqueio.
+
+---
+
+## 14. Perguntas que sobraram para a Dra. Kátia
+
+Nenhuma bloqueia o começo — as Tasks 10 a 16 rodam com provedor de mentira.
+
+7. **Qual número manda os lembretes?** O plano exige um chip novo, só do robô
+   (§11.4, condição 1). Falta comprar e dizer qual é.
+8. **Que horas o disparo roda?** Proposto: 18h.
+9. **O texto da primeira mensagem** — ela escreve, não eu.
+10. **Como perguntar a autorização às ~500 ativas?** O plano só oferece um caminho:
+    consulta a consulta. Uma mensagem única perguntando "posso mandar mensagem?" já é
+    a mensagem que não podia mandar.
+
+---
+
+## 15. Fontes sobre banimento
+
+A decisão por Baileys foi tomada com estas leituras na mesa:
+
+- [Why Cheap WhatsApp Bots Get Your Number Banned — SporeSec](https://sporesec.com/en/blog/whatsapp-unofficial-api-ban-risk)
+- [What Is Baileys? WhatsApp Library Guide (2026)](https://whatsapp.checkleaked.cc/blog/what-is-baileys)
+- [WhatsApp Automation Ban Risk 2026 — Kraya](https://blog.kraya-ai.com/whatsapp-automation-ban-risk)
+- [WhatsApp API and Automation 2026 — Zylos Research](https://zylos.ai/research/2026-01-26-whatsapp-api-automation/)
+- [baileys-antiban — padrões de envio humanos](https://github.com/kobie3717/baileys-antiban)
+
+**Ressalva honesta:** a maioria das fontes que quantifica banimento são blogs de
+fornecedores de API oficial, cujo incentivo comercial é assustar. Os números ("1 em
+5 em um ano", "2 a 8 semanas até a detecção") não são verificáveis. O que não depende
+do incentivo é o resto, e é o que sustenta tanto o risco quanto a decisão: o ToS
+proíbe cliente não oficial, não há apelação — e a detecção descrita pesa razão de
+resposta, distância no grafo de contatos e ritmo robótico, três coisas em que um
+lembrete para paciente conhecida, em volume baixo e com intervalo irregular, se sai
+bem.
