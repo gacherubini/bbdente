@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 
+from app.agenda.models import SituacaoAgendamento
 from app.auth.models import Clinica, Usuario
 from app.catalogo.models import Categoria, Convenio, Preco, Procedimento
 from app.clinico.models import Lancamento, LancamentoRegiao, Odontograma
@@ -18,6 +19,7 @@ TABELAS_ESPERADAS = {
     "odontograma", "lancamento", "lancamento_regiao", "condicao",
     "pergunta_anamnese", "resposta_anamnese", "observacao_clinica",
     "parcela",
+    "agendamento",
 }
 
 
@@ -32,6 +34,7 @@ def test_enums_nativos_do_postgres_existem_com_os_valores_certos(engine_teste):
             ("escopo", Escopo),
             ("regiao", Regiao),
             ("status_lancamento", StatusLancamento),
+            ("situacao_agendamento", SituacaoAgendamento),
         ]:
             valores = {
                 linha[0]
