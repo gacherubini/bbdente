@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Text,
     Time,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -126,3 +127,146 @@ class Agendamento(Base):
         if minutos >= 24 * 60:
             return time(23, 59)
         return time(minutos // 60, minutos % 60)
+
+
+class TipoLembrete(StrEnum):
+    """So um, e de proposito: modelo que nada dispara e peso morto.
+
+    O de confirmacao na marcacao e o proximo, e o encanamento ja o comporta sem
+    schema novo — e por isso que `tipo` existe com um valor so.
+    """
+
+    VESPERA = "VESPERA"
+
+
+class SituacaoLembrete(StrEnum):
+    """O caminho de um lembrete, incluindo os becos sem saida.
+
+    `DESCARTADO` e `EXPIRADO` existem porque **saber quem NAO vai receber e a
+    informacao sobre a qual a clinica consegue agir hoje**, com a paciente na
+    cadeira. Um lembrete que simplesmente nao e criado nao aparece em tela
+    nenhuma.
+    """
+
+    PENDENTE = "PENDENTE"
+    ENVIANDO = "ENVIANDO"
+    ENVIADO = "ENVIADO"
+    FALHOU = "FALHOU"
+    DESCARTADO = "DESCARTADO"
+    EXPIRADO = "EXPIRADO"
+    CANCELADO = "CANCELADO"
+
+
+TIPO_LEMBRETE_PG = Enum(
+    TipoLembrete,
+    name="tipo_lembrete",
+    create_type=False,
+    values_callable=lambda e: [m.value for m in e],
+)
+SITUACAO_LEMBRETE_PG = Enum(
+    SituacaoLembrete,
+    name="situacao_lembrete",
+    create_type=False,
+    values_callable=lambda e: [m.value for m in e],
+)
+
+
+class Lembrete(Base):
+    """Uma mensagem que vai (ou nao) sair para um horario."""
+
+    __tablename__ = "lembrete"
+    __table_args__ = (
+        # A IDEMPOTENCIA MORA AQUI. Nao e um `if`, nao e lock, nao e disciplina:
+        # e o banco recusando a segunda linha. Vale se o cron disparar duas
+        # vezes, se houver duas maquinas durante um deploy, e se alguem clicar em
+        # "enviar agora" enquanto o cron roda.
+        UniqueConstraint(
+            "agendamento_id", "tipo", name="uq_lembrete_um_por_agendamento"
+        ),
+        Index("ix_lembrete_fila", "clinica_id", "situacao", "agendado_para"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    clinica_id: Mapped[int] = mapped_column(ForeignKey("clinica.id"), index=True)
+    agendamento_id: Mapped[int] = mapped_column(
+        ForeignKey("agendamento.id"), index=True
+    )
+    tipo: Mapped[TipoLembrete] = mapped_column(TIPO_LEMBRETE_PG)
+
+    # Para onde foi e o que saiu, congelados no envio. Se ela corrigir o telefone
+    # depois, o registro continua dizendo para onde foi de fato — mesma filosofia
+    # do prontuario: guarda o que aconteceu, nao o estado de agora.
+    numero: Mapped[str | None] = mapped_column(String(24))
+    texto: Mapped[str | None] = mapped_column(Text)
+    modelo_id: Mapped[int | None] = mapped_column(ForeignKey("modelo_mensagem.id"))
+
+    situacao: Mapped[SituacaoLembrete] = mapped_column(
+        SITUACAO_LEMBRETE_PG,
+        default=SituacaoLembrete.PENDENTE,
+        server_default=SituacaoLembrete.PENDENTE.value,
+    )
+    # Por que nao saiu. E o que a tela mostra para ela poder corrigir hoje.
+    motivo: Mapped[str | None] = mapped_column(Text)
+    tentativas: Mapped[int] = mapped_column(
+        SmallInteger, default=0, server_default="0"
+    )
+
+    provedor: Mapped[str | None] = mapped_column(String(20))
+    id_externo: Mapped[str | None] = mapped_column(String(80))
+
+    agendado_para: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    enviado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    excluido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ModeloMensagem(Base):
+    """O texto que ela edita. Tabela e nao constante porque o requisito e que
+    **ela** escreva — e o texto dela vai ser melhor que o nosso."""
+
+    __tablename__ = "modelo_mensagem"
+    __table_args__ = (
+        UniqueConstraint("clinica_id", "codigo", name="uq_modelo_por_clinica"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    clinica_id: Mapped[int] = mapped_column(ForeignKey("clinica.id"), index=True)
+    codigo: Mapped[str] = mapped_column(String(30))
+    texto: Mapped[str] = mapped_column(Text)
+    atualizado_por: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
+    atualizado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ConfiguracaoClinica(Base):
+    """Uma linha por clinica, com colunas tipadas — nao chave/valor.
+
+    Neste repositorio o `tests/test_schema.py` afirma colunas, e o schema e a
+    documentacao. Chave/valor generico e `varchar` para tudo e invisivel ao teste.
+    """
+
+    __tablename__ = "configuracao_clinica"
+
+    clinica_id: Mapped[int] = mapped_column(ForeignKey("clinica.id"), primary_key=True)
+
+    # A CHAVE GERAL. Nasce desligada: deploy que ja sai mandando mensagem para
+    # paciente e a definicao de acidente.
+    lembrete_ativo: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
+    lembrete_hora: Mapped[time] = mapped_column(Time, server_default="18:00")
+    lembrete_horas_antes: Mapped[int] = mapped_column(
+        SmallInteger, default=24, server_default="24"
+    )
+    # Teto de volume: ritmo humano e a mitigacao que a via nao oficial exige.
+    lembrete_teto_diario: Mapped[int] = mapped_column(
+        SmallInteger, default=20, server_default="20"
+    )
+    whatsapp_provedor: Mapped[str | None] = mapped_column(String(20))
+
+    # Viram {endereco} e {telefone_clinica} na mensagem.
+    endereco: Mapped[str | None] = mapped_column(String(200))
+    telefone_clinica: Mapped[str | None] = mapped_column(String(24))
+
+    atualizado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

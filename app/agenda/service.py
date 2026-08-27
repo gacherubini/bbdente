@@ -17,7 +17,13 @@ from datetime import UTC, date, datetime, time, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.agenda.models import DURACAO_PADRAO_MIN, Agendamento, SituacaoAgendamento
+from app.agenda.models import (
+    DURACAO_PADRAO_MIN,
+    Agendamento,
+    ConfiguracaoClinica,
+    ModeloMensagem,
+    SituacaoAgendamento,
+)
 from app.auth.auditoria import registrar
 from app.clinico.service import atendidos_por_dia
 from app.pacientes.service import contatos_de
@@ -556,3 +562,50 @@ def vincular_paciente(
         depois=_retrato(agendamento),
     )
     return True
+
+
+# O texto que a tela mostra enquanto ela nao escrever o dela. Igual ao semeado
+# pela migration 0009 — os dois existem porque clinica criada depois da migration
+# tambem precisa nascer com um texto que funciona.
+TEXTO_INICIAL_DA_VESPERA = (
+    "Oi {primeiro_nome}! Passando para lembrar do seu horário\n"
+    "{dia_relativo}, {dia}, às {hora}, com a {dentista}.\n"
+    "\n"
+    "{clinica} — {endereco}\n"
+    "Se não puder vir, me avise: {telefone_clinica}"
+)
+CODIGO_VESPERA = "LEMBRETE_VESPERA"
+
+
+def configuracao_de(sessao: Session, *, clinica_id: int) -> ConfiguracaoClinica:
+    """A configuracao da clinica, criada na primeira leitura se ainda nao existir.
+
+    A migration semeia as clinicas que existiam naquele dia; esta funcao cobre as
+    que nascerem depois. Toda tela e todo disparo passam por aqui, entao "a linha
+    existe" deixa de ser suposicao.
+    """
+    configuracao = sessao.get(ConfiguracaoClinica, clinica_id)
+    if configuracao is None:
+        configuracao = ConfiguracaoClinica(clinica_id=clinica_id)
+        sessao.add(configuracao)
+        sessao.flush()
+    return configuracao
+
+
+def modelo_da_vespera(sessao: Session, *, clinica_id: int) -> ModeloMensagem:
+    """O texto do lembrete de vespera, criado na primeira leitura se faltar."""
+    modelo = sessao.scalars(
+        select(ModeloMensagem).where(
+            ModeloMensagem.clinica_id == clinica_id,
+            ModeloMensagem.codigo == CODIGO_VESPERA,
+        )
+    ).one_or_none()
+    if modelo is None:
+        modelo = ModeloMensagem(
+            clinica_id=clinica_id,
+            codigo=CODIGO_VESPERA,
+            texto=TEXTO_INICIAL_DA_VESPERA,
+        )
+        sessao.add(modelo)
+        sessao.flush()
+    return modelo

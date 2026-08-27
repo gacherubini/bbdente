@@ -20,6 +20,7 @@ TABELAS_ESPERADAS = {
     "pergunta_anamnese", "resposta_anamnese", "observacao_clinica",
     "parcela",
     "agendamento",
+    "lembrete", "modelo_mensagem", "configuracao_clinica",
 }
 
 
