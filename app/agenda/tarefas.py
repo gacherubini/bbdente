@@ -17,6 +17,7 @@ from starlette.exceptions import HTTPException
 
 from app.agenda.lembretes import rodar
 from app.agenda.whatsapp import Provedor
+from app.agenda.whatsapp.evolution import ProvedorEvolution
 from app.agenda.whatsapp.fake import ProvedorFake
 from app.config import config
 from app.shared.db import obter_sessao
@@ -25,11 +26,25 @@ router = APIRouter()
 
 
 def provedor_atual() -> Provedor:
-    """Quem manda a mensagem de verdade.
+    """Quem manda a mensagem, escolhido por variavel de ambiente.
 
-    Enquanto a Task 17 nao entra, e o de mentira: o encanamento inteiro roda e
-    fica testado sem uma mensagem real e sem o chip novo existir.
+    **O padrao e o de mentira, e os dois desvios possiveis caem nele.** Nome de
+    provedor errado (`evoluton`) e chave ausente nao levantam erro nem sobem uma
+    conexao pela metade: viram o provedor que registra e nao envia. E o mesmo
+    criterio da duvida no `estado()` — entre "acho que da para enviar" e "acho
+    que nao da", a resposta segura e a que nao manda mensagem para paciente.
+
+    Chave ausente merece a linha propria porque a Evolution nao tem login: a
+    `apikey` e a unica coisa entre a internet e o WhatsApp da dentista. Instancia
+    sem chave nao e uma instancia mal configurada, e uma porta aberta.
     """
+    if config.whatsapp_provedor == "evolution" and config.evolution_api_key:
+        return ProvedorEvolution.de_configuracao(
+            url=config.evolution_url,
+            api_key=config.evolution_api_key,
+            instancia=config.evolution_instancia,
+            timeout_s=config.evolution_timeout_s,
+        )
     return ProvedorFake()
 
 

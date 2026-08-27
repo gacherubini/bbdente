@@ -27,6 +27,7 @@ from app.agenda.mensagem import (
     renderizar,
 )
 from app.agenda.service import (
+    anotar_conexao,
     configuracao_de,
     modelo_da_vespera,
     salvar_configuracao,
@@ -35,6 +36,7 @@ from app.agenda.service import (
 from app.agenda.tarefas import provedor_atual
 from app.agenda.whatsapp import EstadoDaConexao, Provedor
 from app.agenda.whatsapp.fake import ProvedorFake
+from app.auth.auditoria import registrar
 from app.auth.models import Usuario
 from app.auth.sessao import usuario_atual
 from app.shared.db import obter_sessao
@@ -99,6 +101,19 @@ def _tela(
     except ModeloInvalido as problema:
         previa = f"(o texto tem um erro: {problema})"
 
+    # Esta tela e a unica que pode pagar uma chamada de rede ao provedor: ela e
+    # aberta duas vezes por ano, e e justamente aqui que a pessoa veio conferir a
+    # conexao. O que se descobre fica anotado para a AGENDA poder avisar depois
+    # sem perguntar nada a ninguem.
+    conexao = provedor.conexao()
+    anotar_conexao(
+        sessao,
+        clinica_id=clinica_id,
+        estado=conexao.estado.value,
+        numero=conexao.numero,
+    )
+    sessao.commit()
+
     return templates.TemplateResponse(
         request,
         "configuracoes.html",
@@ -109,8 +124,10 @@ def _tela(
             "previa": previa,
             "variaveis": sorted(VARIAVEIS_PERMITIDAS),
             "erro": erro,
-            "estado": provedor.estado().value,
-            "conectado": provedor.estado() is EstadoDaConexao.CONECTADO,
+            "estado": conexao.estado.value,
+            "conectado": conexao.estado is EstadoDaConexao.CONECTADO,
+            "aguardando_qr": conexao.estado is EstadoDaConexao.AGUARDANDO_QR,
+            "numero_conectado": conexao.numero,
             # Enquanto quem "envia" e o de mentira, a tela nao pode dizer
             # "conectado": ela estaria afirmando uma conexao que nao existe, e e
             # justamente essa a coisa que ela vai conferir quando desconfiar.
@@ -193,6 +210,76 @@ def gravar_modelo(
             request, sessao, usuario, provedor, erro=str(problema), texto=texto
         )
 
+    sessao.commit()
+    return RedirectResponse("/configuracoes", status_code=303)
+
+
+@router.get("/configuracoes/whatsapp/qr")
+def qr(
+    usuario: Usuario = Depends(usuario_atual),
+    sessao: Session = Depends(obter_sessao),
+    provedor: Provedor = Depends(provedor_atual),
+):
+    """Pede um QR novo e devolve o estado junto, em JSON.
+
+    A tela chama isto de tempos em tempos enquanto está aberta, e é assim que o
+    QR "renova sozinho": o do WhatsApp expira em segundos, então renovar é
+    simplesmente perguntar de novo. Quando o celular finalmente lê, a resposta
+    seguinte volta CONECTADO e a tela para de pedir.
+
+    Devolve `imagem` (o QR como data URI) e nunca credencial: o QR é um convite
+    de pareamento de vida curta, e a sessão de verdade nasce depois da leitura,
+    dentro da Evolution.
+    """
+    conexao = provedor.parear()
+    anotar_conexao(
+        sessao,
+        clinica_id=usuario.clinica_id,
+        estado=conexao.estado.value,
+        numero=conexao.numero,
+    )
+    sessao.commit()
+    return {
+        "estado": conexao.estado.value,
+        "conectado": conexao.estado is EstadoDaConexao.CONECTADO,
+        "numero": conexao.numero,
+        "imagem": conexao.imagem,
+        "erro": conexao.erro,
+    }
+
+
+@router.post("/configuracoes/whatsapp/desconectar")
+def desconectar(
+    request: Request,
+    usuario: Usuario = Depends(usuario_atual),
+    sessao: Session = Depends(obter_sessao),
+    provedor: Provedor = Depends(provedor_atual),
+):
+    """Derruba a sessão e joga a credencial fora.
+
+    **É o único lugar do sistema onde apagar é o certo, e a exceção fica
+    anotada:** a regra do `excluido_em` protege dado de paciente, e credencial
+    revogada não é dado de paciente — é lixo que só serve para vazar. O que
+    permanece é o fato, na auditoria: quem desconectou e quando.
+
+    A auditoria guarda o fato e **nada do conteúdo**. Não há payload de sessão
+    para guardar, e se houvesse seria justamente o que não podia ir para lá.
+    """
+    sucesso = provedor.desconectar()
+    anotar_conexao(
+        sessao,
+        clinica_id=usuario.clinica_id,
+        estado=EstadoDaConexao.DESCONECTADO.value if sucesso else "ERRO",
+    )
+    registrar(
+        sessao,
+        clinica_id=usuario.clinica_id,
+        usuario_id=usuario.id,
+        acao="DESCONECTAR",
+        entidade="whatsapp",
+        entidade_id=usuario.clinica_id,
+        depois={"desconectado": sucesso},
+    )
     sessao.commit()
     return RedirectResponse("/configuracoes", status_code=303)
 

@@ -51,6 +51,19 @@ def test_as_tabelas_existem(engine_teste):
     assert {"lembrete", "modelo_mensagem", "configuracao_clinica"} <= existentes
 
 
+def test_a_configuracao_guarda_o_ultimo_estado_conhecido_da_conexao(engine_teste):
+    """São as colunas que deixam a AGENDA avisar que o WhatsApp caiu sem falar
+    com a rede. Todas nuláveis: nulo é "ninguém nunca perguntou", que é o estado
+    de toda clínica no dia em que a coluna nasce."""
+    colunas = {
+        c["name"]: c
+        for c in inspect(engine_teste).get_columns("configuracao_clinica")
+    }
+    for nome in ("whatsapp_estado", "whatsapp_numero", "whatsapp_visto_em"):
+        assert nome in colunas, nome
+        assert colunas[nome]["nullable"] is True, nome
+
+
 @pytest.mark.parametrize(
     "nome, enum", [("tipo_lembrete", TipoLembrete), ("situacao_lembrete", SituacaoLembrete)]
 )

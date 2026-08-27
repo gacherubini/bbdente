@@ -661,6 +661,30 @@ def salvar_configuracao(
     return configuracao
 
 
+def anotar_conexao(
+    sessao: Session, *, clinica_id: int, estado: str, numero: str | None = None
+) -> ConfiguracaoClinica:
+    """Guarda o ultimo estado conhecido do WhatsApp. **Sem auditoria.**
+
+    Chamada por quem falou com o provedor por outro motivo: o relogio, quando vai
+    despachar, e a tela de Configuracoes, quando e aberta. A agenda so le o que
+    ficou aqui — ela e a tela mais usada do sistema e nao pode pagar uma chamada
+    de rede, com o timeout junto, a cada carregamento.
+
+    Nao vai para a `auditoria` de proposito, e a regra 5 do AGENTS.md continua de
+    pe: auditoria e sobre o que uma PESSOA fez. Isto e observacao de maquina, 96
+    vezes por dia — enchendo a auditoria com isso, o que ela existe para provar
+    (quem ligou a chave, quem mudou o consentimento) fica ilegivel no meio.
+    Conectar e desconectar, esses sim, sao ato de gente e sao auditados.
+    """
+    configuracao = configuracao_de(sessao, clinica_id=clinica_id)
+    configuracao.whatsapp_estado = estado
+    configuracao.whatsapp_numero = numero
+    configuracao.whatsapp_visto_em = datetime.now(UTC)
+    sessao.flush()
+    return configuracao
+
+
 def _retrato_da_configuracao(configuracao: ConfiguracaoClinica) -> dict:
     return {
         "lembrete_ativo": configuracao.lembrete_ativo,

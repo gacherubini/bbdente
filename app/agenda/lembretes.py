@@ -43,10 +43,11 @@ from app.agenda.models import (
 )
 from app.agenda.service import (
     SITUACOES_VIVAS,
+    anotar_conexao,
     configuracao_de,
     modelo_da_vespera,
 )
-from app.agenda.whatsapp import Provedor
+from app.agenda.whatsapp import EstadoDaConexao, Provedor
 from app.auth.auditoria import registrar
 from app.auth.service import identidade_da_clinica
 from app.pacientes.service import contatos_de
@@ -293,6 +294,25 @@ def despachar(
         .order_by(Lembrete.agendado_para, Lembrete.id)
     ).all()
 
+    # A conexao e perguntada UMA vez por execucao, e so quando a primeira
+    # mensagem esta prestes a sair. Uma vez porque sao 96 batidas por dia e a
+    # maioria nao tem nada para mandar — perguntar sempre seria bater na Evolution
+    # a toa; so na hora porque `pendentes` inclui quem ainda nao venceu, e a
+    # conexao de agora nao diz nada sobre a de daqui a seis horas.
+    conexao: list[EstadoDaConexao] = []
+
+    def conectado() -> bool:
+        if not conexao:
+            conexao.append(provedor.estado())
+            # O que se descobriu aqui e o que faz a AGENDA poder mostrar a faixa
+            # "o WhatsApp desconectou" sem falar com a rede. Quem carrega a agenda
+            # nao devia esperar por uma Evolution travada para ver os horarios.
+            anotar_conexao(
+                sessao, clinica_id=clinica_id, estado=conexao[0].value
+            )
+            sessao.commit()
+        return conexao[0] is EstadoDaConexao.CONECTADO
+
     primeiro = True
     for lembrete in pendentes:
         agendamento = sessao.get(Agendamento, lembrete.agendamento_id)
@@ -336,6 +356,17 @@ def despachar(
             )
         except ModeloInvalido:
             _fechar(sessao, lembrete, SituacaoLembrete.FALHOU, "modelo_invalido")
+            lembrete.tentativas += 1
+            sessao.commit()
+            resumo.falhados += 1
+            continue
+
+        if not conectado():
+            # Antes de `_reservar_para_envio`, de proposito: `ENVIANDO` significa
+            # "nao sei se saiu" e nunca e retomado sozinho. Com o socket caido eu
+            # SEI que nao saiu, e deixar a linha travada nesse estado trocaria uma
+            # certeza por uma duvida que so uma pessoa consegue desfazer.
+            _fechar(sessao, lembrete, SituacaoLembrete.FALHOU, "desconectado")
             lembrete.tentativas += 1
             sessao.commit()
             resumo.falhados += 1

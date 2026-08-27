@@ -271,6 +271,16 @@ class ConfiguracaoClinica(Base):
     )
     whatsapp_provedor: Mapped[str | None] = mapped_column(String(20))
 
+    # O ultimo estado conhecido da conexao, para a AGENDA poder avisar sem pagar
+    # uma chamada de rede a cada carregamento — ela e a tela mais aberta do
+    # sistema, e nao depende do lembrete para funcionar. Escreve quem ja falou
+    # com o provedor por outro motivo (o relogio e a tela de Configuracoes); a
+    # agenda so le. Nenhuma credencial mora aqui: a sessao do WhatsApp fica na
+    # Evolution, que e quem tem disco para ela.
+    whatsapp_estado: Mapped[str | None] = mapped_column(String(20))
+    whatsapp_numero: Mapped[str | None] = mapped_column(String(24))
+    whatsapp_visto_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     # Viram {endereco} e {telefone_clinica} na mensagem.
     endereco: Mapped[str | None] = mapped_column(String(200))
     telefone_clinica: Mapped[str | None] = mapped_column(String(24))

@@ -20,6 +20,16 @@
   </div>
 </div>
 
+{% if whatsapp_caido %}
+{# Faixa, e nao linha discreta: a chave esta LIGADA, entao ela acredita que as
+   pacientes estao sendo avisadas — e elas nao estao. O caminho para consertar
+   vai junto, porque configuracao nao se acha pelo menu, se acha pelo problema. #}
+<p class="agenda-caido">
+  O <b>WhatsApp desconectou</b> — os lembretes estão falhando.
+  <a href="/configuracoes">reconectar</a>
+</p>
+{% endif %}
+
 {% if not lembrete_ativo %}
 <p class="agenda-desligado">
   Os <b>lembretes de WhatsApp desligados</b> — ninguém está sendo avisado da

@@ -36,6 +36,7 @@ from app.agenda.service import (
     remarcar,
     semana_de,
 )
+from app.agenda.whatsapp import EstadoDaConexao
 from app.auth.models import Usuario
 from app.auth.sessao import usuario_atual
 from app.pacientes.service import contatos_de
@@ -103,6 +104,7 @@ def tela(
     de_mes = vista == "mes"
     periodo = mes_de(escolhido) if de_mes else semana_de(escolhido)
     montada = grade(sessao, clinica_id=usuario.clinica_id, periodo=periodo)
+    configuracao = configuracao_de(sessao, clinica_id=usuario.clinica_id)
 
     return templates.TemplateResponse(
         request,
@@ -122,9 +124,20 @@ def tela(
             "conflito": conflito,
             # Silencio que parece funcionamento e a pior forma de desligar: ela
             # confiaria que a paciente foi avisada, e a paciente nao foi.
-            "lembrete_ativo": configuracao_de(
-                sessao, clinica_id=usuario.clinica_id
-            ).lembrete_ativo,
+            "lembrete_ativo": configuracao.lembrete_ativo,
+            # A faixa da conexao caida. Le do BANCO o ultimo estado conhecido, e
+            # nao do provedor: esta e a tela mais aberta do sistema, e uma
+            # Evolution travada nao pode deixar a agenda lenta. A agenda nao
+            # depende do lembrete para funcionar, e nem para carregar.
+            #
+            # Estado NULO nao mostra faixa: significa "ninguem nunca perguntou",
+            # e nao "caiu". Alarme por falta de informacao e alarme que grita a
+            # toa, e alarme que grita a toa se aprende a ignorar.
+            "whatsapp_caido": (
+                configuracao.lembrete_ativo
+                and configuracao.whatsapp_estado
+                == EstadoDaConexao.DESCONECTADO.value
+            ),
         },
     )
 

@@ -14,18 +14,52 @@
   <p><b>nenhum WhatsApp conectado</b></p>
   <p class="ajuda-campo">
     O envio está <b>simulado</b>: as mensagens ficam registradas aqui embaixo e
-    <b>nada sai para ninguém</b>. Ler o QR code e conectar o aparelho é o passo
-    seguinte, e depende do chip novo existir.
+    <b>nada sai para ninguém</b>. O botão de conectar aparece quando o servidor
+    estiver apontado para o WhatsApp de verdade — está em
+    <code>docs/OPERACAO.md</code>, em "Subir a Evolution".
   </p>
   {% else %}
   <p>
-    <b>{{ estado | replace('_', ' ') | lower }}</b>
+    <b>{{ estado | replace('_', ' ') | lower }}</b>{% if numero_conectado %}
+    como {{ numero_conectado }}{% endif %}
     {# Quem corre o risco de perder o numero tem direito de ver na tela qual
        risco esta correndo. #}
     <br><span class="rotulo-fraco">
       Enviando pelo WhatsApp conectado por QR (não oficial)
     </span>
+    {% if ultimo_envio %}
+    <br><span class="rotulo-fraco">
+      Última mensagem enviada: {{ ultimo_envio.strftime('%d/%m às %H:%M') }}
+    </span>
+    {% endif %}
   </p>
+
+  {# O QR nasce escondido e so aparece quando alguem pede. Mostra-lo de cara
+     faria a tela piscar um convite de pareamento toda vez que ela abrisse — e
+     ninguem precisa ver isso para conferir se esta conectado. #}
+  <div id="qr-area" hidden>
+    <p id="qr-recado" class="ajuda-campo">Pedindo o código…</p>
+    <img id="qr-imagem" alt="QR code para ler no WhatsApp do celular"
+         width="264" height="264" hidden>
+    <p class="ajuda-campo">
+      No celular: <b>WhatsApp → Aparelhos conectados → Conectar aparelho</b>,
+      e aponte a câmera para o código. Ele se renova sozinho enquanto esta tela
+      estiver aberta.
+    </p>
+  </div>
+
+  <p class="acoes-cartao">
+    <button type="button" id="botao-qr" class="botao-secundario">
+      {{ 'Ler QR de novo' if conectado else 'Conectar' }}
+    </button>
+  </p>
+  <form method="post" action="/configuracoes/whatsapp/desconectar">
+    <button type="submit" class="botao-secundario">Desconectar</button>
+    <span class="ajuda-campo">
+      Desconectar <b>apaga a credencial</b> — depois disso, só reconectando com
+      o QR. Nenhum lembrete sai enquanto estiver desconectado.
+    </span>
+  </form>
   {% endif %}
 </div>
 
@@ -158,4 +192,10 @@
   {% endfor %}
   </tbody>
 </table>
+{% endblock %}
+
+{% block scripts %}
+{% if not simulado %}
+<script src="{{ estatico('whatsapp_qr.js') }}"></script>
+{% endif %}
 {% endblock %}

@@ -15,10 +15,14 @@ dependencies = [
     "pydantic-settings>=2.6",
     "python-multipart>=0.0.12",
     "fpdf2>=2.8",
+    # O provedor Evolution fala por HTTP com o app do WhatsApp. Ja vinha junto
+    # pelo TestClient do FastAPI, mas como dependencia de teste — agora roda em
+    # producao, e dependencia de producao se declara.
+    "httpx>=0.28",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.3", "httpx>=0.28", "ruff>=0.8"]
+dev = ["pytest>=8.3", "ruff>=0.8"]
 
 [build-system]
 requires = ["setuptools>=68"]

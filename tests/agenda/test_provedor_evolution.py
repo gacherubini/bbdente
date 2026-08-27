@@ -1,0 +1,346 @@
+"""O provedor que fala com o WhatsApp de verdade — sem tocar a rede uma vez.
+
+Todo teste daqui usa um transporte de mentira do httpx. Isso não é conveniência:
+é o contrato da Task 17. Uma suíte que abre socket falha no avião, falha no CI
+sem saída para a internet e, pior, um dia manda mensagem para alguém.
+
+O que está sendo provado é sempre a mesma coisa por ângulos diferentes: **erro do
+provedor vira `Envio(ok=False)`, nunca exceção.** Uma paciente com número ruim não
+pode impedir as outras sete de receberem, e o `despachar` não tem `try` em volta
+da chamada de rede — a barreira mora aqui dentro.
+"""
+
+from datetime import date, datetime, time
+
+import httpx
+import pytest
+
+from app.agenda import lembretes, service
+from app.agenda.models import Lembrete, SituacaoLembrete
+from app.agenda.tarefas import provedor_atual
+from app.agenda.whatsapp import EstadoDaConexao
+from app.agenda.whatsapp.evolution import ProvedorEvolution
+from app.agenda.whatsapp.fake import ProvedorFake
+from app.auth.models import Clinica, Usuario
+from app.pacientes import service as pacientes
+
+CHAVE = "chave-secreta-de-teste"
+URL = "http://bddente-whatsapp.internal:8080"
+
+
+def _provedor(resposta, *, instancia="bddente"):
+    """Um ProvedorEvolution com a rede trocada por uma função.
+
+    `resposta` recebe o `httpx.Request` e devolve um `httpx.Response` — ou levanta,
+    que é como se simula a rede caindo.
+    """
+    cliente = httpx.Client(
+        base_url=URL,
+        transport=httpx.MockTransport(resposta),
+        headers={"apikey": CHAVE},
+        timeout=httpx.Timeout(10.0),
+    )
+    return ProvedorEvolution(instancia=instancia, cliente=cliente)
+
+
+def _ok(corpo, status=200):
+    return lambda pedido: httpx.Response(status, json=corpo)
+
+
+# --- a escolha do provedor ---------------------------------------------------
+
+def test_o_padrao_e_o_de_mentira():
+    """Ninguém liga o WhatsApp de verdade por esquecimento de configurar."""
+    assert isinstance(provedor_atual(), ProvedorFake)
+
+
+def test_a_configuracao_escolhe_o_provedor(monkeypatch):
+    from app.config import config
+
+    monkeypatch.setattr(config, "whatsapp_provedor", "evolution")
+    monkeypatch.setattr(config, "evolution_url", URL)
+    monkeypatch.setattr(config, "evolution_api_key", CHAVE)
+
+    assert isinstance(provedor_atual(), ProvedorEvolution)
+
+
+def test_provedor_desconhecido_cai_no_de_mentira(monkeypatch):
+    """Errar o nome da variável não pode ligar nem derrubar nada."""
+    from app.config import config
+
+    monkeypatch.setattr(config, "whatsapp_provedor", "evoluton")
+    assert isinstance(provedor_atual(), ProvedorFake)
+
+
+def test_evolution_sem_chave_nao_sobe(monkeypatch):
+    """Sem `AUTHENTICATION_API_KEY` a instância aceitaria qualquer um. Se
+    alguém pedir `evolution` sem o segredo, é engano — e engano de segredo
+    ausente vira o de mentira, não uma conexão aberta."""
+    from app.config import config
+
+    monkeypatch.setattr(config, "whatsapp_provedor", "evolution")
+    monkeypatch.setattr(config, "evolution_api_key", "")
+    assert isinstance(provedor_atual(), ProvedorFake)
+
+
+# --- estado ------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "estado_evolution,esperado",
+    [
+        ("open", EstadoDaConexao.CONECTADO),
+        ("connecting", EstadoDaConexao.AGUARDANDO_QR),
+        ("close", EstadoDaConexao.DESCONECTADO),
+        ("qualquer-coisa-nova", EstadoDaConexao.DESCONECTADO),
+    ],
+)
+def test_o_estado_traduz_o_vocabulario_da_evolution(estado_evolution, esperado):
+    provedor = _provedor(_ok({"instance": {"state": estado_evolution}}))
+    assert provedor.estado() is esperado
+
+
+def test_rede_caida_e_desconectado_e_nao_excecao():
+    def cai(pedido):
+        raise httpx.ConnectError("sem rota", request=pedido)
+
+    assert _provedor(cai).estado() is EstadoDaConexao.DESCONECTADO
+
+
+def test_resposta_sem_json_e_desconectado():
+    provedor = _provedor(lambda pedido: httpx.Response(200, text="<html>opa</html>"))
+    assert provedor.estado() is EstadoDaConexao.DESCONECTADO
+
+
+def test_o_estado_pergunta_pela_instancia_certa():
+    vistos = []
+
+    def anotar(pedido):
+        vistos.append(str(pedido.url))
+        return httpx.Response(200, json={"instance": {"state": "open"}})
+
+    _provedor(anotar, instancia="katia").estado()
+    assert vistos == [f"{URL}/instance/connectionState/katia"]
+
+
+# --- envio -------------------------------------------------------------------
+
+def test_envio_bem_sucedido_devolve_o_id_externo():
+    provedor = _provedor(_ok({"key": {"id": "3EB0C767D"}}, status=201))
+    envio = provedor.enviar(numero="5551999998888", texto="Oi Maria!")
+    assert envio.ok
+    assert envio.id_externo == "3EB0C767D"
+    assert envio.erro is None
+
+
+def test_o_envio_manda_numero_e_texto_para_a_rota_certa():
+    vistos = []
+
+    def anotar(pedido):
+        import json
+
+        vistos.append((str(pedido.url), json.loads(pedido.content)))
+        return httpx.Response(201, json={"key": {"id": "x"}})
+
+    _provedor(anotar, instancia="katia").enviar(numero="5551999998888", texto="Oi!")
+    url, corpo = vistos[0]
+    assert url == f"{URL}/message/sendText/katia"
+    assert corpo["number"] == "5551999998888"
+    assert corpo["text"] == "Oi!"
+
+
+def test_o_envio_leva_a_chave_no_cabecalho():
+    vistos = []
+
+    def anotar(pedido):
+        vistos.append(pedido.headers.get("apikey"))
+        return httpx.Response(201, json={"key": {"id": "x"}})
+
+    _provedor(anotar).enviar(numero="5551999998888", texto="Oi!")
+    assert vistos == [CHAVE]
+
+
+def test_rede_caida_no_envio_vira_envio_com_erro():
+    def cai(pedido):
+        raise httpx.ConnectError("sem rota", request=pedido)
+
+    envio = _provedor(cai).enviar(numero="5551999998888", texto="Oi!")
+    assert envio.ok is False
+    assert envio.erro
+
+
+def test_timeout_no_envio_vira_envio_com_erro():
+    def demora(pedido):
+        raise httpx.ReadTimeout("demorou", request=pedido)
+
+    envio = _provedor(demora).enviar(numero="5551999998888", texto="Oi!")
+    assert envio.ok is False
+    assert "tempo" in envio.erro.lower() or "timeout" in envio.erro.lower()
+
+
+@pytest.mark.parametrize("status", [400, 401, 404, 429, 500, 502])
+def test_status_de_erro_vira_envio_com_erro(status):
+    provedor = _provedor(_ok({"message": "deu ruim"}, status=status))
+    envio = provedor.enviar(numero="5551999998888", texto="Oi!")
+    assert envio.ok is False
+    assert str(status) in envio.erro
+
+
+def test_resposta_sem_json_no_envio_vira_envio_com_erro():
+    provedor = _provedor(lambda pedido: httpx.Response(201, text="nao e json"))
+    envio = provedor.enviar(numero="5551999998888", texto="Oi!")
+    assert envio.ok is False
+
+
+def test_o_erro_nunca_carrega_a_chave_da_api():
+    """O motivo vai para `lembrete.motivo`, para o log e para a tela. Segredo
+    que passeia por esses três não é mais segredo."""
+    provedor = _provedor(_ok({"apikey": CHAVE, "message": "invalido"}, status=401))
+    envio = provedor.enviar(numero="5551999998888", texto="Oi!")
+    assert CHAVE not in (envio.erro or "")
+
+
+def test_o_motivo_cabe_na_coluna():
+    """`lembrete.motivo` é curto. Um HTML de 40 KB de proxy quebrado não pode
+    derrubar o gravamento do próprio erro."""
+    provedor = _provedor(lambda pedido: httpx.Response(502, text="x" * 40_000))
+    envio = provedor.enviar(numero="5551999998888", texto="Oi!")
+    assert envio.ok is False
+    assert len(envio.erro) <= 120
+
+
+# --- toda chamada tem prazo --------------------------------------------------
+
+def test_o_cliente_nasce_com_timeout_explicito():
+    """Sem prazo, uma Evolution travada segura o relógio para sempre — e o
+    relógio é uma thread só. A batida seguinte nunca chega."""
+    provedor = ProvedorEvolution.de_configuracao(
+        url=URL, api_key=CHAVE, instancia="bddente", timeout_s=7.5
+    )
+    assert provedor.cliente.timeout.connect == 7.5
+    assert provedor.cliente.timeout.read == 7.5
+    assert provedor.cliente.timeout.write == 7.5
+    assert provedor.cliente.timeout.pool == 7.5
+
+
+# --- integrado com o despacho ------------------------------------------------
+
+CONSULTA = date(2026, 9, 1)
+AGORA = datetime(2026, 8, 31, 14, 0)
+
+
+@pytest.fixture
+def cenario(sessao):
+    clinica = Clinica(nome="Consultório Dra. Kátia")
+    sessao.add(clinica)
+    sessao.flush()
+    usuario = Usuario(
+        clinica_id=clinica.id, nome="Dra. Kátia", email="k@l", senha_hash="x"
+    )
+    sessao.add(usuario)
+    sessao.flush()
+    configuracao = service.configuracao_de(sessao, clinica_id=clinica.id)
+    configuracao.lembrete_ativo = True
+    configuracao.endereco = "Rua X, 100"
+    configuracao.telefone_clinica = "(51) 3333-3333"
+    service.modelo_da_vespera(sessao, clinica_id=clinica.id)
+    sessao.flush()
+    return {"clinica": clinica, "usuario": usuario}
+
+
+def _marcar(sessao, cenario, nome, telefone):
+    paciente = pacientes.criar(
+        sessao,
+        clinica_id=cenario["clinica"].id,
+        usuario_id=cenario["usuario"].id,
+        nome=nome,
+        telefone=telefone,
+    )
+    pacientes.definir_consentimento(
+        sessao,
+        clinica_id=cenario["clinica"].id,
+        usuario_id=cenario["usuario"].id,
+        paciente_id=paciente.id,
+        aceita=True,
+    )
+    return service.marcar(
+        sessao,
+        clinica_id=cenario["clinica"].id,
+        usuario_id=cenario["usuario"].id,
+        dia=CONSULTA,
+        inicio=time(14, 0),
+        paciente_id=paciente.id,
+    )
+
+
+def _rodar(sessao, cenario, provedor):
+    lembretes.reservar(sessao, clinica_id=cenario["clinica"].id, agora=AGORA)
+    return lembretes.despachar(
+        sessao,
+        clinica_id=cenario["clinica"].id,
+        agora=AGORA,
+        provedor=provedor,
+        pausar=lambda: None,
+    )
+
+
+def test_a_rede_caindo_deixa_falhou_e_nao_derruba_o_disparo(sessao, cenario):
+    _marcar(sessao, cenario, "MARIA SILVA", "51999998888")
+
+    # A conexão está de pé; é o envio que cai no meio. É o caso diferente de
+    # "desconectado": aqui a mensagem PODE ter chegado, e é por isso que fica
+    # FALHOU e ninguém reenvia sozinho.
+    def cai_no_envio(pedido):
+        if "connectionState" in str(pedido.url):
+            return httpx.Response(200, json={"instance": {"state": "open"}})
+        raise httpx.ConnectError("sem rota", request=pedido)
+
+    resumo = _rodar(sessao, cenario, _provedor(cai_no_envio))
+
+    assert resumo.falhados == 1
+    assert resumo.enviados == 0
+    lembrete = sessao.query(Lembrete).one()
+    assert lembrete.situacao is SituacaoLembrete.FALHOU
+    assert lembrete.motivo != "desconectado"
+    assert lembrete.tentativas == 1
+
+
+def test_uma_falha_de_rede_no_meio_nao_impede_as_seguintes(sessao, cenario):
+    for indice in range(3):
+        _marcar(sessao, cenario, f"PACIENTE {indice}", f"5199999{indice}888")
+
+    chamadas = {"n": 0}
+
+    def falha_na_segunda(pedido):
+        if "connectionState" in str(pedido.url):
+            return httpx.Response(200, json={"instance": {"state": "open"}})
+        chamadas["n"] += 1
+        if chamadas["n"] == 2:
+            raise httpx.ConnectError("sem rota", request=pedido)
+        return httpx.Response(201, json={"key": {"id": f"id-{chamadas['n']}"}})
+
+    resumo = _rodar(sessao, cenario, _provedor(falha_na_segunda))
+
+    assert resumo.enviados == 2
+    assert resumo.falhados == 1
+
+
+def test_desconectado_nao_tenta_enviar(sessao, cenario):
+    """Task 18: sem sessão de WhatsApp, tudo vira FALHOU/desconectado e nenhuma
+    chamada de envio sai — insistir com o socket caído é o padrão que queima o
+    número."""
+    _marcar(sessao, cenario, "MARIA SILVA", "51999998888")
+
+    envios = {"n": 0}
+
+    def responder(pedido):
+        if "connectionState" in str(pedido.url):
+            return httpx.Response(200, json={"instance": {"state": "close"}})
+        envios["n"] += 1
+        return httpx.Response(201, json={"key": {"id": "x"}})
+
+    resumo = _rodar(sessao, cenario, _provedor(responder))
+
+    assert envios["n"] == 0
+    assert resumo.enviados == 0
+    assert resumo.falhados == 1
+    assert sessao.query(Lembrete).one().motivo == "desconectado"

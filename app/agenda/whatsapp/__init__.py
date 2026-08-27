@@ -29,7 +29,29 @@ class Envio:
     erro: str | None = None
 
 
+@dataclass(frozen=True)
+class Conexao:
+    """O que a tela precisa saber para dizer em uma linha o que esta acontecendo.
+
+    `imagem` e o QR como data URI, e so existe em AGUARDANDO_QR. Ele **nao** e
+    credencial: e um convite de pareamento que vale segundos e que so serve para
+    quem estiver com o celular da dentista na mao. A credencial de verdade nasce
+    depois da leitura e mora dentro da Evolution, nunca aqui.
+    """
+
+    estado: EstadoDaConexao
+    numero: str | None = None
+    imagem: str | None = None
+    erro: str | None = None
+
+
 class Provedor(Protocol):
     def estado(self) -> EstadoDaConexao: ...
 
     def enviar(self, *, numero: str, texto: str) -> Envio: ...
+
+    def conexao(self) -> Conexao: ...
+
+    def parear(self) -> Conexao: ...
+
+    def desconectar(self) -> bool: ...

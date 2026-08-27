@@ -1443,6 +1443,37 @@ td:hover > .agenda-vago { color: var(--roxo-brd); background: var(--roxo-cl); }
 }
 .agenda-desligado a { color: #92400E; }
 
+/* Vermelha, e nao amarela como a de cima: as duas dizem coisas diferentes. A
+   amarela e "esta desligado", uma escolha que alguem fez de proposito. Esta e
+   "esta ligado e nao esta funcionando" — ela acredita que as pacientes foram
+   avisadas, e elas nao foram. */
+.agenda-caido {
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  border-radius: var(--raio);
+  padding: 8px 12px;
+  font-size: 12.5px;
+  color: #991B1B;
+  margin: 0 0 12px;
+}
+.agenda-caido a { color: #991B1B; }
+
+/* O QR e uma imagem de 264px de lado que aparece e some. Sem tamanho reservado,
+   mostrar o codigo empurra a tela inteira para baixo debaixo do dedo de quem
+   acabou de clicar. */
+#qr-area { margin: 10px 0; }
+#qr-imagem {
+  display: block;
+  width: 264px;
+  height: 264px;
+  image-rendering: pixelated;  /* QR e grade: suavizar borra o que o celular le */
+  background: #fff;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  padding: 8px;
+}
+.acoes-cartao { margin: 10px 0 0; }
+
 /* Configuracoes: link no rodape da lateral, e nao item de menu. */
 .link-lateral {
   display: block;

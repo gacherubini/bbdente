@@ -14,6 +14,10 @@ Violar qualquer uma delas reprova o trabalho em review, mesmo que os testes pass
 
 1. **Nunca `DELETE` no código de aplicação.** Toda exclusão é lógica, via `excluido_em`.
    Guarda mínima de 10 anos (CFO); dado de saúde é dado pessoal sensível (LGPD).
+   *Exceção anotada:* desconectar o WhatsApp em `/configuracoes` **apaga a
+   credencial** — e ela vive na Evolution, não aqui. A regra protege dado de
+   paciente; credencial revogada não é dado de paciente, é lixo que só serve para
+   vazar. O fato vai para a `auditoria`; o conteúdo, não.
 
 2. **Fronteira de módulo.** Um módulo só acessa outro pela `service.py` dele. Nunca
    importe `models` de outro módulo, nunca faça `JOIN` em tabela de outro módulo.
@@ -142,6 +146,38 @@ O `ruff` deste repo usa `select = ["E", "F", "I", "UP", "B"]`. Consequências:
 | Criar usuário | `.venv/bin/python -m scripts.criar_usuario email "Nome"` |
 | Migrar o histórico | `.venv/bin/python -m migracao` (ver [`docs/MIGRACAO.md`](docs/MIGRACAO.md)) |
 
+### Quanto os testes demoram, e por quê
+
+`pytest -q` inteiro leva **minutos na sua máquina e segundos no CI**, e a diferença
+não é um problema a resolver: `tests/migracao/` migra o extrato real do Dentalis
+— 5.561 pacientes, 44.812 lançamentos — contra o Postgres de verdade, várias
+vezes. No CI esses testes se **pulam sozinhos**, porque o extrato é prontuário e
+nunca entra no repositório.
+
+Enquanto estiver mexendo em qualquer coisa que não seja migração, rode
+
+```bash
+.venv/bin/pytest -q --ignore=tests/migracao     # ~30 s, 941 testes
+```
+
+e deixe a suíte inteira para antes do commit. **Uma rodada só por vez:** duas
+invocações do pytest ao mesmo tempo brigam pelo mesmo `bddente_teste`, e a
+segunda derruba o schema debaixo da primeira — o sintoma é uma rodada que nunca
+termina e erros que não se reproduzem.
+
+O custo fixo do setup era de 9 a 100 segundos por invocação até 27/08/2026,
+quando o `conftest.py` trocou `alembic downgrade base` por `DROP DATABASE`
+(0,35 s, e sem herdar sujeira da rodada anterior). O caminho de volta das
+migrations continua coberto, agora por `tests/test_migrations.py`.
+
+O que sobrou de lento é trabalho de verdade, e está medido: `tudo_migrado`, em
+`tests/migracao/test_migracao_completa.py`, é fixture **de função** e é usada por
+**11 testes** — a migração inteira roda 11 vezes, do zero, cada uma. Passá-la para
+`scope="session"` é a otimização óbvia que ainda não foi feita: os 11 testes só
+contam e leem, então compartilhar o banco migrado entre eles não os faria enxergar
+um ao outro de um jeito que importe. Fica anotado como escolha em aberto, não como
+esquecimento.
+
 ## Por onde começar, dado o que você quer fazer
 
 | Quero... | Olhe primeiro |
@@ -207,5 +243,11 @@ Nenhum destes é esquecimento — são escolhas registradas para não virarem su
 - **O "a fazer" da lista de pacientes e o "a receber" do financeiro são números
   diferentes.** O primeiro é tratamento planejado e não feito; o segundo é
   tratamento feito e não pago. Nunca chame os dois de "em aberto".
+- **A sessão do WhatsApp nunca entra no banco.** Ela mora no volume da Evolution.
+  O BDDente guarda da conexão três colunas que já aparecem na tela — estado, número
+  e a hora em que foi visto — e há um teste de schema que reprova coluna nova cujo
+  nome sugira guardar credencial. Pela mesma razão, **a agenda lê esse estado do
+  banco e nunca fala com o provedor**: ela é a tela mais aberta do sistema e não
+  pode ficar lenta por causa de um acessório.
 - **`condicao.dente` pode ser nulo**: 5.522 dos 9.629 ícones do Dentalis (`OICOn`) são
   da boca inteira, não de um dente. Entram guardados, mas não são desenhados.

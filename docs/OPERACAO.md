@@ -177,6 +177,57 @@ oficial — entra na conta. Para comparação, a API oficial cobra da
 ordem de US$ 0,008 por mensagem *utility* no Brasil, uns US$ 0,80/mês com 100 consultas,
 e deixaria a máquina continuar dormindo.
 
+### Subir a Evolution, e apontar o BDDente para ela
+
+A Evolution é um **app separado no Fly**, com volume próprio, e o `Dockerfile` do
+BDDente continua inalterado — Baileys é Node, e Node não entra nesta imagem.
+
+    fly apps create bddente-whatsapp --org bddente
+    fly volumes create evolution_dados --app bddente-whatsapp --region iad --size 1
+
+    fly secrets set --app bddente-whatsapp         AUTHENTICATION_API_KEY="$(python -c 'import secrets;print(secrets.token_hex(32))')"
+
+**Ela não pode ter endereço público.** A Evolution não tem login — a única coisa
+entre a internet e o WhatsApp pessoal da mãe do dono do projeto é aquela chave de
+cabeçalho. No `fly.toml` dela, nada de `[http_service]`: só a rede privada
+`.internal`, que é por onde o BDDente fala. Ela também precisa de
+`min_machines_running = 1` pelo mesmo motivo que o BDDente: Baileys mantém um
+socket vivo, e máquina que dorme é sessão que cai.
+
+Com ela de pé, o BDDente aponta para lá — e é **este** o momento em que o envio
+deixa de ser simulado:
+
+    fly secrets set --app bddente         WHATSAPP_PROVEDOR=evolution         EVOLUTION_URL=http://bddente-whatsapp.internal:8080         EVOLUTION_API_KEY="<a mesma chave de cima>"         EVOLUTION_INSTANCIA=bddente
+
+O padrão de `WHATSAPP_PROVEDOR` é `fake`, e **errar o nome ou esquecer a chave cai
+no `fake` também**, em silêncio e de propósito: entre "acho que dá para enviar" e
+"acho que não dá", a resposta segura é a que não manda mensagem para paciente. Se a
+tela de Configurações continuar dizendo *"nenhum WhatsApp conectado — o envio está
+simulado"* depois do deploy, é um destes dois segredos que não chegou.
+
+Ligar o provedor **não** manda mensagem nenhuma: a chave geral de `/configuracoes`
+continua desligada, e são duas travas independentes.
+
+### Conectar o aparelho (o QR)
+
+Em `/configuracoes`, bloco WhatsApp, botão **Conectar**. No celular:
+*WhatsApp → Aparelhos conectados → Conectar aparelho*, e aponte para o código.
+
+O QR expira em segundos, e a tela pede um novo a cada 20 s enquanto estiver aberta —
+não precisa clicar de novo. Assim que o celular lê, a tela recarrega e passa a
+mostrar **Conectado como (o número)**. Fechar a aba para de pedir.
+
+**Desconectar apaga a credencial**, e é o único lugar do sistema em que apagar é o
+certo: a regra do `excluido_em` protege dado de paciente, e credencial revogada não é
+dado de paciente — é lixo que só serve para vazar. O fato fica na auditoria (quem e
+quando); o conteúdo não, porque não existe conteúdo a guardar.
+
+**A sessão do WhatsApp nunca entra no banco do BDDente.** Ela mora dentro da
+Evolution, no volume dela, que é quem tem disco para isso. O que o BDDente guarda da
+conexão são três colunas que já aparecem na tela: estado, número e a hora em que foi
+visto. Há um teste de schema que reprova qualquer coluna nova que pareça guardar
+credencial.
+
 ### Quem dispara, e quando
 
 **Cada paciente é avisada na hora dela.** O vencimento é `hora da consulta menos 24 h`

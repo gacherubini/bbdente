@@ -811,8 +811,8 @@ Fase 6 — o disparo (provedor de mentira)
  15b. agenda/relogio.py — a batida de 15 min + min_machines_running = 1   [27/08]
 
 Fase 7 — o WhatsApp de verdade
- 17. Evolution API como app separado no Fly + provedor evolution.py
- 18. Conectar/desconectar na tela (QR)
+ 17. Evolution API como app separado no Fly + provedor evolution.py   [27/08] feita
+ 18. Conectar/desconectar na tela (QR)                                [27/08] feita
  19. ~~Parar de receber: webhook~~  — CANCELADA em 27/08/2026
  20. Operação: OPERACAO.md, playbook de queda, primeiro envio real
 ```
@@ -947,33 +947,48 @@ Detalhada no §12. Requisitos e testes lá.
 #### Task 17 — Evolution API de verdade
 
 **Requisitos**
-- [ ] `app/agenda/whatsapp/` com o `Protocol` do §11.4 e `fake.py` já pronto.
-- [ ] `evolution.py` falando com o app separado pela rede privada `.internal`.
-- [ ] `AUTHENTICATION_API_KEY` em `fly secrets`; escolha do provedor por variável de ambiente, padrão `fake`.
-- [ ] Erro do provedor vira `Envio(ok=False, erro=...)`; **nunca sobe exceção que derrube o disparo inteiro** — uma paciente com número ruim não pode impedir as outras sete.
-- [ ] Timeout curto e explícito em toda chamada de rede.
-- [ ] `Dockerfile` do BDDente **inalterado**.
+- [x] `app/agenda/whatsapp/` com o `Protocol` do §11.4 e `fake.py` já pronto.
+- [x] `evolution.py` falando com o app separado pela rede privada `.internal`.
+- [x] `AUTHENTICATION_API_KEY` em `fly secrets`; escolha do provedor por variável de ambiente, padrão `fake`.
+- [x] Erro do provedor vira `Envio(ok=False, erro=...)`; **nunca sobe exceção que derrube o disparo inteiro** — uma paciente com número ruim não pode impedir as outras sete.
+- [x] Timeout curto e explícito em toda chamada de rede.
+- [x] `Dockerfile` do BDDente **inalterado**.
 
 **Testes**
-- [ ] o provedor é escolhido pela configuração, e o padrão é `fake`
-- [ ] falha de rede vira `FALHOU`, não exceção
-- [ ] uma falha no meio da fila não impede as seguintes
-- [ ] nenhum teste da suíte toca a rede de verdade (contrato)
+- [x] o provedor é escolhido pela configuração, e o padrão é `fake`
+- [x] falha de rede vira `FALHOU`, não exceção
+- [x] uma falha no meio da fila não impede as seguintes
+- [x] nenhum teste da suíte toca a rede de verdade (contrato)
 
 #### Task 18 — Conectar e desconectar (QR)
 
 **Requisitos**
-- [ ] Botão "Conectar" gera o QR e o mostra; renova sozinho enquanto a tela está aberta.
-- [ ] Sessão nunca em log, nunca em auditoria; se ficar no BDDente, cifrada com `SECRET_KEY`.
-- [ ] Estado visível: `CONECTADO (número) · DESCONECTADO · AGUARDANDO QR`, com a data do último envio bem-sucedido.
-- [ ] "Desconectar" **remove** a credencial — é o único caso em que remover é o certo: credencial revogada é lixo, e a regra do `excluido_em` é sobre dado de paciente, não sobre segredo. Fica anotado como exceção consciente, e o fato vai para a auditoria.
-- [ ] Faixa vermelha na agenda quando cai, com link para reconectar.
+- [x] Botão "Conectar" gera o QR e o mostra; renova sozinho enquanto a tela está aberta.
+- [x] Sessão nunca em log, nunca em auditoria; se ficar no BDDente, cifrada com `SECRET_KEY`.
+- [x] Estado visível: `CONECTADO (número) · DESCONECTADO · AGUARDANDO QR`, com a data do último envio bem-sucedido.
+- [x] "Desconectar" **remove** a credencial — é o único caso em que remover é o certo: credencial revogada é lixo, e a regra do `excluido_em` é sobre dado de paciente, não sobre segredo. Fica anotado como exceção consciente, e o fato vai para a auditoria.
+- [x] Faixa vermelha na agenda quando cai, com link para reconectar.
 
 **Testes**
-- [ ] a sessão nunca aparece em claro no banco
-- [ ] auditoria registra conectar/desconectar **sem** o payload
-- [ ] desconectado, o disparo não tenta enviar: tudo vira `FALHOU/desconectado`
-- [ ] a faixa aparece na agenda quando o estado é desconectado
+- [x] a sessão nunca aparece em claro no banco
+- [x] auditoria registra conectar/desconectar **sem** o payload
+- [x] desconectado, o disparo não tenta enviar: tudo vira `FALHOU/desconectado`
+- [x] a faixa aparece na agenda quando o estado é desconectado
+
+**Nota da Task 18, 27/08/2026.** O requisito dizia "se ficar no BDDente, cifrada com
+`SECRET_KEY`" — e a resposta foi **não ficar**. A sessão do Baileys vive no volume da
+Evolution, que é quem tem disco para ela, e o BDDente guarda da conexão apenas três
+colunas que já aparecem na tela: `whatsapp_estado`, `whatsapp_numero` e
+`whatsapp_visto_em`. Segredo cifrado em dois lugares continua sendo segredo em dois
+lugares; um a menos é melhor que um cifrado. Há um teste de schema que reprova coluna
+nova cujo nome sugira guardar credencial.
+
+Junto veio uma decisão que o plano não previa: **a agenda lê o estado do banco, nunca
+do provedor.** A faixa "o WhatsApp desconectou" precisa aparecer na tela mais aberta do
+sistema, e pôr uma chamada de rede com timeout no caminho dela deixaria a agenda lenta
+por causa de um acessório. Quem já falou com a Evolution por outro motivo — o relógio,
+ao despachar, e a tela de Configurações, ao abrir — anota o que descobriu. Há um teste
+que falha se a agenda voltar a falar com o provedor.
 
 #### Task 19 — ~~Parar de receber~~ (CANCELADA em 27/08/2026)
 
