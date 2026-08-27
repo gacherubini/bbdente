@@ -28,7 +28,7 @@ def test_a_tabela_existe_com_as_colunas_da_spec(engine_teste):
     colunas = {c["name"] for c in inspect(engine_teste).get_columns("agendamento")}
     assert colunas == {
         "id", "clinica_id", "paciente_id", "nome_avulso", "telefone_avulso",
-        "dia", "inicio", "duracao_min", "situacao", "observacao",
+        "dia", "inicio", "duracao_min", "situacao", "observacao", "avisar_avulso",
         "criado_por", "criado_em", "excluido_em",
     }
 

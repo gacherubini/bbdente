@@ -21,6 +21,21 @@
   {# Ela esta com o telefone na mao: o numero tem de discar, nao ser copiado. #}
   <a class="agenda-cartao-fone" href="tel:{{ c.telefone }}">{{ c.telefone }}</a>
   {% endif %}
+  {# O selo so aparece quando ha o que fazer a respeito. Cartao cheio de aviso
+     que ela nao pode resolver vira ruido e para de ser lido. #}
+  {% if c.falta_perguntar %}
+  <form class="agenda-selo-perguntar" method="post"
+        action="/pacientes/{{ c.paciente_id }}/whatsapp">
+    <input type="hidden" name="aceita" value="sim">
+    <input type="hidden" name="voltar" value="/agenda?dia={{ c.dia.isoformat() }}">
+    <span>sem permissão de WhatsApp</span>
+    <button type="submit" title="ela autorizou receber lembrete">perguntar</button>
+  </form>
+  {% elif not c.tem_numero %}
+  <div class="agenda-selo-mudo" title="sem número aproveitável para WhatsApp">
+    sem lembrete
+  </div>
+  {% endif %}
   {% if c.observacao %}
   <div class="agenda-cartao-nota">{{ c.observacao }}</div>
   {% endif %}

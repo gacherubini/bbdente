@@ -252,7 +252,7 @@ def formulario_editar(
             paciente_ids=[agendamento.paciente_id],
         ).get(agendamento.paciente_id)
         if contato:
-            nome, telefone = contato[0], contato[1] or ""
+            nome, telefone = contato.nome, contato.telefone or ""
 
     return _formulario(
         request,

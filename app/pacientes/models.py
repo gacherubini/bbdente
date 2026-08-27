@@ -31,6 +31,11 @@ class Paciente(Base):
     # nome do convenio, chame catalogo.service.convenio(id).
     convenio_id: Mapped[int | None] = mapped_column(ForeignKey("convenio.id"))
 
+    # Tres estados, e o do meio e o que importa: NULL = nunca perguntamos, e
+    # NULL nao recebe mensagem. Os 5.559 migrados entram assim — o Dentalis nunca
+    # perguntou, e presumir autorizacao de 5.559 pessoas e o que a lei nao deixa.
+    aceita_whatsapp: Mapped[bool | None] = mapped_column(Boolean)
+
     cadastrado_em: Mapped[date | None] = mapped_column(Date)
     ultimo_atendimento: Mapped[date | None] = mapped_column(Date, index=True)
 

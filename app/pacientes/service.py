@@ -457,6 +457,7 @@ def criar(
     indicacao: str | None = None,
     observacao: str | None = None,
     endereco: Endereco | None = None,
+    aceita_whatsapp: bool | None = None,
 ) -> Paciente:
     """Cadastra um paciente novo. Faz flush (o chamador precisa do id), nunca commit —
     quem chama decide gravar.
@@ -473,6 +474,9 @@ def criar(
     documento_limpo = documento.formatar(cpf)
     paciente = Paciente(
         clinica_id=clinica_id,
+        # Nulo e o padrao e significa "nunca perguntamos" — quem nao preencheu o
+        # campo nao autorizou nada.
+        aceita_whatsapp=aceita_whatsapp,
         # Paciente novo nao tem codigo do Dentalis: codigo_legado so existe no
         # historico migrado.
         codigo_legado=None,
@@ -646,10 +650,23 @@ def nomes_de(
     }
 
 
+@dataclass(frozen=True)
+class ContatoDoPaciente:
+    """O que outro modulo pode saber de um paciente sem tocar no prontuario.
+
+    Nome, telefone e se da para mandar mensagem. Nada mais entra aqui: e o que a
+    agenda le para desenhar o cartao e para decidir o lembrete.
+    """
+
+    nome: str
+    telefone: str | None
+    aceita_whatsapp: bool | None
+
+
 def contatos_de(
     sessao: Session, *, clinica_id: int, paciente_ids: Iterable[int]
-) -> dict[int, tuple[str, str | None]]:
-    """Nome e telefone principal de cada paciente, numa consulta so.
+) -> dict[int, ContatoDoPaciente]:
+    """Nome, telefone principal e consentimento de cada paciente, numa consulta so.
 
     E o que a agenda precisa saber de quem vem — nada de prontuario. Uma consulta
     para a lista inteira porque a grade do mes tem dezenas de cartoes, e uma ida
@@ -667,11 +684,56 @@ def contatos_de(
         )
         .subquery()
     )
+    # Formatado aqui, uma vez: quem le e tela de outro modulo, e o numero cru
+    # ('51999998888') apareceria assim no cartao da agenda. `numero_para_whatsapp`
+    # limpa a formatacao de novo, entao nada se perde no caminho do lembrete.
     return {
-        paciente_id: (nome, telefone)
-        for paciente_id, nome, telefone in sessao.execute(
-            select(Paciente.id, Paciente.nome, principal.c.numero)
+        paciente_id: ContatoDoPaciente(
+            nome=nome,
+            telefone=formatar(telefone) if telefone else None,
+            aceita_whatsapp=aceita,
+        )
+        for paciente_id, nome, telefone, aceita in sessao.execute(
+            select(
+                Paciente.id, Paciente.nome, principal.c.numero, Paciente.aceita_whatsapp
+            )
             .outerjoin(principal, principal.c.paciente_id == Paciente.id)
             .where(Paciente.id.in_(ids), Paciente.clinica_id == clinica_id)
         ).all()
     }
+
+
+def definir_consentimento(
+    sessao: Session,
+    *,
+    clinica_id: int,
+    usuario_id: int | None,
+    paciente_id: int,
+    aceita: bool | None,
+) -> Paciente:
+    """Registra se a pessoa autoriza receber mensagem no WhatsApp.
+
+    Tres estados de propósito, e nao um checkbox: checkbox confunde "nao marcou"
+    com "disse nao", e essas duas coisas tem consequencias diferentes. Vai para a
+    auditoria com antes e depois porque consentimento e justamente o que se
+    precisa provar depois.
+    """
+    paciente = obter(sessao, clinica_id=clinica_id, paciente_id=paciente_id)
+    if paciente is None:
+        raise LookupError("paciente nao encontrado")
+
+    antes = {"aceita_whatsapp": paciente.aceita_whatsapp}
+    paciente.aceita_whatsapp = aceita
+    sessao.flush()
+
+    registrar(
+        sessao,
+        clinica_id=clinica_id,
+        usuario_id=usuario_id,
+        acao="CONSENTIMENTO",
+        entidade="paciente",
+        entidade_id=paciente.id,
+        antes=antes,
+        depois={"aceita_whatsapp": aceita},
+    )
+    return paciente

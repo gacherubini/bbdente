@@ -22,7 +22,7 @@ from app.auth.auditoria import registrar
 from app.clinico.service import atendidos_por_dia
 from app.pacientes.service import contatos_de
 from app.pacientes.service import obter as obter_paciente
-from app.pacientes.telefone import formatar
+from app.pacientes.telefone import formatar, numero_para_whatsapp
 
 # Quem nao ocupa mais o horario: nao conflita com ninguem, nao conta na grade.
 SITUACOES_VIVAS = (SituacaoAgendamento.MARCADO, SituacaoAgendamento.CONFIRMADO)
@@ -88,6 +88,7 @@ def marcar(
     paciente_id: int | None = None,
     nome_avulso: str | None = None,
     telefone_avulso: str | None = None,
+    avisar_avulso: bool = True,
     observacao: str | None = None,
 ) -> Agendamento:
     """Marca um horario. De paciente cadastrada ou de um telefonema avulso.
@@ -112,6 +113,7 @@ def marcar(
         paciente_id=paciente_id,
         nome_avulso=nome_avulso,
         telefone_avulso=_telefone(telefone_avulso) if paciente_id is None else None,
+        avisar_avulso=avisar_avulso,
         dia=dia,
         inicio=inicio,
         duracao_min=duracao_min,
@@ -344,10 +346,38 @@ class Cartao:
     situacao: str
     observacao: str | None
     atendida: bool
+    # Se este horario entra no lembrete de vespera, e quando nao entra, por que.
+    aceita_whatsapp: bool | None
+    avisar_avulso: bool
 
     @property
     def desmarcado(self) -> bool:
         return self.situacao == SituacaoAgendamento.DESMARCADO.value
+
+    @property
+    def tem_numero(self) -> bool:
+        return numero_para_whatsapp(self.telefone) is not None
+
+    @property
+    def falta_perguntar(self) -> bool:
+        """Paciente da base, com numero, que nunca foi perguntada.
+
+        E o unico caso em que a tela pede alguma coisa — e pede porque a hora de
+        perguntar e com a pessoa ali, marcando o retorno.
+        """
+        return (
+            self.paciente_id is not None
+            and self.tem_numero
+            and self.aceita_whatsapp is None
+        )
+
+    @property
+    def recebe_lembrete(self) -> bool:
+        if not self.tem_numero:
+            return False
+        if self.paciente_id is None:
+            return self.avisar_avulso
+        return self.aceita_whatsapp is True
 
     @property
     def ocupa_horario(self) -> bool:
@@ -436,9 +466,9 @@ def grade(sessao: Session, *, clinica_id: int, periodo: Periodo) -> Grade:
 
     cartoes: dict[date, list[Cartao]] = {}
     for agendamento in agendamentos:
-        nome, telefone = contatos.get(
-            agendamento.paciente_id, (agendamento.nome_avulso or "", agendamento.telefone_avulso)
-        )
+        contato = contatos.get(agendamento.paciente_id)
+        nome = contato.nome if contato else (agendamento.nome_avulso or "")
+        telefone = contato.telefone if contato else agendamento.telefone_avulso
         cartoes.setdefault(agendamento.dia, []).append(
             Cartao(
                 id=agendamento.id,
@@ -452,6 +482,8 @@ def grade(sessao: Session, *, clinica_id: int, periodo: Periodo) -> Grade:
                 situacao=agendamento.situacao.value,
                 observacao=agendamento.observacao,
                 atendida=agendamento.paciente_id in atendidos.get(agendamento.dia, ()),
+                aceita_whatsapp=contato.aceita_whatsapp if contato else None,
+                avisar_avulso=agendamento.avisar_avulso,
             )
         )
 
@@ -459,7 +491,11 @@ def grade(sessao: Session, *, clinica_id: int, periodo: Periodo) -> Grade:
     for dia, do_dia in atendidos.items():
         com_horario = {c.paciente_id for c in cartoes.get(dia, [])}
         faltantes = [
-            Contato(nome=contatos[pid][0], telefone=contatos[pid][1], paciente_id=pid)
+            Contato(
+                nome=contatos[pid].nome,
+                telefone=contatos[pid].telefone,
+                paciente_id=pid,
+            )
             for pid in sorted(do_dia - com_horario)
             if pid in contatos
         ]

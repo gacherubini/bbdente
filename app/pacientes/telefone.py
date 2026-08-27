@@ -77,3 +77,32 @@ def parecer_longo(numero: str) -> bool:
     """Digitos demais para um numero so — em geral dois numeros colados por hifen
     no campo antigo ('32484554-84055454'). A tela marca; nao corta pela metade."""
     return len(numero) > TAMANHO_MAXIMO
+
+
+# O WhatsApp e mais exigente que a tela: numero internacional completo ou nada.
+DDI_BRASIL = "55"
+DDD_MINIMO, DDD_MAXIMO = 11, 99
+
+
+def numero_para_whatsapp(bruto: str | None) -> str | None:
+    """`55` + DDD + 8 ou 9 digitos, ou `None` quando o numero nao serve.
+
+    O que ela NAO faz, e cada uma tem motivo:
+
+    - **Nao acrescenta o nono digito.** Um numero de 10 digitos do cadastro de
+      2005 pode ser fixo (que nao tem WhatsApp) ou celular anterior ao nono
+      digito. Somar um '9' e inventar digito — a coisa que este modulo se recusa
+      a fazer desde o primeiro dia.
+    - **Nao chuta DDD.** Numero de 8 digitos de 1996 nao tem DDD; supor '51'
+      acerta em Porto Alegre e erra em quem se mudou. E aqui o preco de errar nao
+      e uma tela feia: e mandar mensagem de paciente para um estranho.
+    - **Nao corta numero comprido.** Dois numeros colados nao viram um.
+    """
+    digitos = _NAO_DIGITO.sub("", bruto or "")
+    if digitos.startswith(DDI_BRASIL) and len(digitos) in (12, 13):
+        digitos = digitos[len(DDI_BRASIL):]
+    if len(digitos) not in (10, 11):
+        return None
+    if not (DDD_MINIMO <= int(digitos[:2]) <= DDD_MAXIMO):
+        return None
+    return DDI_BRASIL + digitos

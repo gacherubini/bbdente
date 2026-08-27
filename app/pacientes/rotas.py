@@ -18,6 +18,7 @@ from app.pacientes.service import (
     buscar,
     contagens,
     criar,
+    definir_consentimento,
     obter,
     semelhantes,
 )
@@ -56,6 +57,13 @@ def _endereco_de(dados: dict[str, str]) -> Endereco:
 
 
 router = APIRouter()
+
+# As tres respostas possiveis. "nao_perguntado" desfaz uma resposta dada por
+# engano e so aparece na ficha — na agenda o clique de passagem tem duas saidas,
+# porque quem esta com a paciente na frente ou ouviu "pode" ou ouviu "nao".
+RESPOSTAS_DE_WHATSAPP = {"sim": True, "nao": False, "nao_perguntado": None}
+
+
 
 
 @router.get("/pacientes", response_class=HTMLResponse)
@@ -142,6 +150,7 @@ def cadastrar(
     telefone: str = Form(""),
     nascimento: str = Form(""),
     convenio_id: str = Form(""),
+    aceita_whatsapp: str = Form(""),
     confirmar: str = Form(""),
     cpf: str = Form(""),
     indicacao: str = Form(""),
@@ -159,6 +168,7 @@ def cadastrar(
         "telefone": telefone,
         "nascimento": nascimento,
         "convenio_id": convenio_id,
+        "aceita_whatsapp": aceita_whatsapp,
         **_ficha(
             cpf=cpf, indicacao=indicacao, observacao=observacao, cep=cep,
             logradouro=logradouro, bairro=bairro, cidade=cidade, uf=uf,
@@ -195,6 +205,9 @@ def cadastrar(
             indicacao=indicacao,
             observacao=observacao,
             endereco=_endereco_de(dados),
+            # Campo em branco = nunca perguntamos. Nao e "nao"; e a ausencia de
+            # pergunta, e ela nao recebe mensagem enquanto for isso.
+            aceita_whatsapp=RESPOSTAS_DE_WHATSAPP.get(aceita_whatsapp),
         )
     except ValueError as erro:
         sessao.rollback()
@@ -344,3 +357,50 @@ def salvar_edicao(
 
     sessao.commit()
     return RedirectResponse(f"/odontograma/{paciente.id}", status_code=303)
+
+
+def _destino_interno(bruto: str, padrao: str) -> str:
+    """Endereco de volta que veio de formulario.
+
+    Formulario e coisa que se edita. Aceitar endereco de fora aqui e
+    redirecionamento aberto — o sistema mandando a dentista para um site que nao
+    e dele, com a barra de endereco dizendo que partiu daqui.
+    """
+    if bruto.startswith("/") and not bruto.startswith("//"):
+        return bruto
+    return padrao
+
+
+@router.post("/pacientes/{paciente_id}/whatsapp")
+def responder_whatsapp(
+    paciente_id: int,
+    aceita: str = Form(""),
+    voltar: str = Form(""),
+    usuario: Usuario = Depends(usuario_atual),
+    sessao: Session = Depends(obter_sessao),
+):
+    """Registra a autorizacao de mandar lembrete, num clique.
+
+    Existe para ser chamada do cartao da agenda, com a paciente ali marcando o
+    retorno: a base de autorizacao so cresce se perguntar for barato. Mandar uma
+    mensagem para todo mundo perguntando se pode mandar mensagem ja e a mensagem
+    que nao podia mandar.
+    """
+    if aceita not in RESPOSTAS_DE_WHATSAPP:
+        raise HTTPException(status_code=400, detail="resposta invalida")
+
+    try:
+        definir_consentimento(
+            sessao,
+            clinica_id=usuario.clinica_id,
+            usuario_id=usuario.id,
+            paciente_id=paciente_id,
+            aceita=RESPOSTAS_DE_WHATSAPP[aceita],
+        )
+    except LookupError as erro:
+        raise HTTPException(status_code=404, detail="paciente nao encontrado") from erro
+
+    sessao.commit()
+    return RedirectResponse(
+        _destino_interno(voltar, f"/pacientes/{paciente_id}/editar"), status_code=303
+    )

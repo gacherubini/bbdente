@@ -1406,3 +1406,26 @@ td:hover > .agenda-vago { color: var(--roxo-brd); background: var(--roxo-cl); }
   line-height: 1.35;
   color: var(--texto-fraco);
 }
+
+/* Selos de lembrete no cartao da agenda. Aparecem so quando ha o que fazer:
+   cartao cheio de aviso que ela nao pode resolver vira ruido e para de ser
+   lido. O "perguntar" e um botao de verdade, nao um link — ele grava. */
+.agenda-selo-perguntar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: #92400E;
+}
+.agenda-selo-perguntar button {
+  background: #FEF3C7;
+  border: 1px solid #FDE68A;
+  border-radius: 999px;
+  padding: 0 6px;
+  font-size: 10.5px;
+  color: #92400E;
+  cursor: pointer;
+}
+.agenda-selo-perguntar button:hover { background: #FDE68A; }
+.agenda-selo-mudo { margin-top: 3px; font-size: 10.5px; color: var(--texto-fraco); }

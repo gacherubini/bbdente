@@ -51,6 +51,23 @@
     </div>
   </div>
 
+  {# Tres opcoes explicitas, nao um checkbox: checkbox confunde "nao marcou" com
+     "disse nao", e as duas coisas tem consequencias diferentes — quem nunca foi
+     perguntada nao recebe mensagem nenhuma. #}
+  <label class="rotulo">Lembrete por WhatsApp</label>
+  <div class="escopos">
+    <label>
+      <input type="radio" name="aceita_whatsapp" value="" checked>
+      Não perguntei
+    </label>
+    <label>
+      <input type="radio" name="aceita_whatsapp" value="sim"> Pode mandar
+    </label>
+    <label>
+      <input type="radio" name="aceita_whatsapp" value="nao"> Não quer receber
+    </label>
+  </div>
+
   <label class="rotulo" for="convenio_id">Convênio</label>
   {# 'PARTICULAR' e um convenio de verdade no catalogo (codigo 001), e e para onde
      apontam os cadastros antigos sem plano. A opcao vazia aqui significa 'ainda nao

@@ -8,6 +8,7 @@ from datetime import date, datetime, time
 from enum import StrEnum
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -97,6 +98,13 @@ class Agendamento(Base):
         server_default=SituacaoAgendamento.MARCADO.value,
     )
     observacao: Mapped[str | None] = mapped_column(Text)
+    # So significa algo quando `paciente_id` e nulo. Nasce ligado porque o
+    # telefone avulso foi ditado agora, ao telefone, para marcar ESTA consulta —
+    # avisar dela e a finalidade para a qual o numero acabou de ser dado. Quem
+    # disser "nao me manda mensagem" desliga aqui, no mesmo formulario.
+    avisar_avulso: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
 
     criado_por: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
     criado_em: Mapped[datetime] = mapped_column(

@@ -34,6 +34,20 @@
     ficha e continua guardado.
   </p>
 
+  {# Formulario proprio, fora do de cima: consentimento tem auditoria propria
+     (`CONSENTIMENTO`, com antes e depois), que e o que se precisa provar depois.
+     Passar junto com nome e telefone misturaria as duas coisas na trilha. #}
+  <label class="rotulo">Lembrete por WhatsApp</label>
+  <p class="ajuda-campo">
+    {% if paciente.aceita_whatsapp is none %}
+      Nunca perguntamos — e por isso ela <b>não</b> recebe lembrete.
+    {% elif paciente.aceita_whatsapp %}
+      Autorizou receber lembrete da consulta.
+    {% else %}
+      Pediu para não receber.
+    {% endif %}
+  </p>
+
   <label class="rotulo" for="convenio_id">Convênio</label>
   <select id="convenio_id" name="convenio_id">
     <option value="">— não informado —</option>
@@ -57,6 +71,17 @@
   <div class="acoes-form">
     <a class="botao-secundario" href="/odontograma/{{ paciente.id }}">Cancelar</a>
     <button type="submit" class="primario">Salvar</button>
+  </div>
+</form>
+
+<form class="cartao-form" method="post"
+      action="/pacientes/{{ paciente.id }}/whatsapp">
+  <input type="hidden" name="voltar" value="/pacientes/{{ paciente.id }}/editar">
+  <label class="rotulo">Mudar a permissão de WhatsApp</label>
+  <div class="acoes-linha">
+    <button type="submit" name="aceita" value="sim">Pode mandar</button>
+    <button type="submit" name="aceita" value="nao">Não quer receber</button>
+    <button type="submit" name="aceita" value="nao_perguntado">Não perguntei</button>
   </div>
 </form>
 {% endblock %}
