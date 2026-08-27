@@ -122,6 +122,17 @@ DATABASE_URL_TESTE=postgresql+psycopg://bddente:bddente@localhost:5432/bddente_t
 
 Sem a variável no ambiente, o `conftest.py` cai no `.env` local.
 
+**A suíte roda no relógio da clínica.** A agenda guarda hora de parede, e o libpq
+manda o fuso do processo para o Postgres como `TimeZone` da sessão — então um
+`agendado_para` gravado às 21h numa máquina em UTC volta do banco como 21h UTC e
+vira 18h na parede. Máquina fora de `America/Sao_Paulo` reprova três testes de
+`tests/agenda/test_lembretes.py` sem que haja nada errado no código; o `fly.toml`
+e o `ci.yml` já põem `TZ=America/Sao_Paulo` pelo mesmo motivo. Fora do Brasil:
+
+```bash
+TZ=America/Sao_Paulo .venv/bin/pytest -q --ignore=tests/migracao
+```
+
 ### Peculiaridades do lint que já custaram tempo
 
 O `ruff` deste repo usa `select = ["E", "F", "I", "UP", "B"]`. Consequências:

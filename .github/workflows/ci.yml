@@ -17,6 +17,14 @@ jobs:
           --health-interval 5s --health-retries 10
     env:
       DATABASE_URL_TESTE: postgresql+psycopg://bddente:bddente@localhost:5432/bddente_teste
+      # O mesmo TZ do `fly.toml`, e nao por capricho: a agenda guarda relogio de
+      # parede da clinica, e o libpq manda o fuso do processo para o Postgres
+      # como `TimeZone` da sessao. Rodando o CI em UTC, um `agendado_para`
+      # gravado as 21h volta do banco como 21h UTC e vira 18h na parede — tres
+      # horas de diferenca em cima do horario da paciente. O runner tem de estar
+      # no mesmo relogio que a maquina de producao, senao o CI reprova o que
+      # esta certo e aprova o que esta errado.
+      TZ: America/Sao_Paulo
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

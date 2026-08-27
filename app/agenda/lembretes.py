@@ -29,6 +29,7 @@ import random
 import time as tempo
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -84,6 +85,11 @@ def _quando(agendamento: Agendamento) -> datetime:
     return datetime.combine(agendamento.dia, agendamento.inicio)
 
 
+# O relogio da parede do consultorio. Escrito aqui uma vez, para que a conversao
+# de fuso seja a mesma no CI, na maquina de quem desenvolve e em producao.
+FUSO_DA_CLINICA = ZoneInfo("America/Sao_Paulo")
+
+
 def parede(momento: datetime) -> datetime:
     """Um instante vindo do banco, na hora do relogio da parede da clinica.
 
@@ -94,10 +100,17 @@ def parede(momento: datetime) -> datetime:
     simplesmente nao recebe — sem excecao, sem log, sem tela vermelha.
 
     Momento ingenuo ja e hora de parede e volta como veio.
+
+    O fuso vai escrito por extenso, e nao herdado da maquina. `astimezone()` sem
+    argumento pergunta o fuso do sistema operacional: em producao o `fly.toml`
+    poe `TZ=America/Sao_Paulo` e da certo, mas o CI roda em UTC, e la a mesma
+    linha respondia 10:00 para 10:00 — reprovando o teste que existe justamente
+    para provar a conversao, e com ele o deploy. Regra de negocio nao pode
+    depender de variavel de ambiente da maquina que roda o codigo.
     """
     if momento.tzinfo is None:
         return momento
-    return momento.astimezone().replace(tzinfo=None)
+    return momento.astimezone(FUSO_DA_CLINICA).replace(tzinfo=None)
 
 
 def _vencimento(agendamento: Agendamento, horas_antes: int) -> datetime:
