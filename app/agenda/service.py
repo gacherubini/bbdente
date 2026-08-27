@@ -17,6 +17,11 @@ from datetime import UTC, date, datetime, time, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.agenda.mensagem import (
+    VARIAVEIS_PERMITIDAS,
+    ModeloInvalido,
+    validar,
+)
 from app.agenda.models import (
     DURACAO_PADRAO_MIN,
     Agendamento,
@@ -608,4 +613,94 @@ def modelo_da_vespera(sessao: Session, *, clinica_id: int) -> ModeloMensagem:
         )
         sessao.add(modelo)
         sessao.flush()
+    return modelo
+
+
+def salvar_configuracao(
+    sessao: Session,
+    *,
+    clinica_id: int,
+    usuario_id: int | None,
+    ativo: bool,
+    hora: time,
+    horas_antes: int,
+    teto_diario: int,
+    endereco: str | None,
+    telefone_clinica: str | None,
+) -> ConfiguracaoClinica:
+    """Grava a configuracao e deixa o antes e o depois na auditoria.
+
+    Ligar e desligar o lembrete e a mudanca de configuracao com consequencia para
+    terceiros — precisa dizer quem mexeu e quando.
+    """
+    configuracao = configuracao_de(sessao, clinica_id=clinica_id)
+    antes = _retrato_da_configuracao(configuracao)
+
+    configuracao.lembrete_ativo = ativo
+    configuracao.lembrete_hora = hora
+    configuracao.lembrete_horas_antes = horas_antes
+    configuracao.lembrete_teto_diario = teto_diario
+    configuracao.endereco = _limpo(endereco)
+    configuracao.telefone_clinica = _limpo(telefone_clinica)
+    configuracao.atualizado_em = datetime.now(UTC)
+    sessao.flush()
+
+    registrar(
+        sessao,
+        clinica_id=clinica_id,
+        usuario_id=usuario_id,
+        acao="ATUALIZAR",
+        entidade="configuracao_clinica",
+        entidade_id=clinica_id,
+        antes=antes,
+        depois=_retrato_da_configuracao(configuracao),
+    )
+    return configuracao
+
+
+def _retrato_da_configuracao(configuracao: ConfiguracaoClinica) -> dict:
+    return {
+        "lembrete_ativo": configuracao.lembrete_ativo,
+        "lembrete_hora": configuracao.lembrete_hora.isoformat(),
+        "lembrete_horas_antes": configuracao.lembrete_horas_antes,
+        "lembrete_teto_diario": configuracao.lembrete_teto_diario,
+        "endereco": configuracao.endereco,
+        "telefone_clinica": configuracao.telefone_clinica,
+    }
+
+
+def salvar_modelo(
+    sessao: Session, *, clinica_id: int, usuario_id: int | None, texto: str
+) -> ModeloMensagem:
+    """Grava o texto do lembrete. Recusa variavel que nao existe.
+
+    Recusar NA ENTRADA e onde o erro custa menos — e e a unica barreira que
+    impede alguem de escrever `{observacao}` achando que vai funcionar.
+    """
+    desconhecidas = validar(texto)
+    if desconhecidas:
+        raise ModeloInvalido(
+            "não existe a variável "
+            + ", ".join(desconhecidas)
+            + ". As que existem são: "
+            + ", ".join(sorted(VARIAVEIS_PERMITIDAS))
+        )
+
+    modelo = modelo_da_vespera(sessao, clinica_id=clinica_id)
+    antes = modelo.texto
+    modelo.texto = texto
+    modelo.atualizado_por = usuario_id
+    modelo.atualizado_em = datetime.now(UTC)
+    sessao.flush()
+
+    registrar(
+        sessao,
+        clinica_id=clinica_id,
+        usuario_id=usuario_id,
+        acao="ATUALIZAR",
+        entidade="modelo_mensagem",
+        entidade_id=modelo.id,
+        antes={"texto": antes},
+        depois={"texto": texto},
+    )
     return modelo

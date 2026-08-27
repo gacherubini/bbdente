@@ -23,6 +23,13 @@
   </div>
 </div>
 
+{% if not lembrete_ativo %}
+<p class="agenda-desligado">
+  Os <b>lembretes de WhatsApp desligados</b> — ninguém está sendo avisado da
+  consulta. <a href="/configuracoes">ligar</a>
+</p>
+{% endif %}
+
 {% if conflito %}
 {# Conflito avisa depois de gravar, nunca antes de deixar: encaixe e urgencia
    acontecem, e sistema que proibe e sistema contornado. #}

@@ -1429,3 +1429,40 @@ td:hover > .agenda-vago { color: var(--roxo-brd); background: var(--roxo-cl); }
 }
 .agenda-selo-perguntar button:hover { background: #FDE68A; }
 .agenda-selo-mudo { margin-top: 3px; font-size: 10.5px; color: var(--texto-fraco); }
+
+/* Aviso de que o lembrete esta desligado. Discreto, mas sempre a vista: silencio
+   que parece funcionamento e a pior forma de desligar. */
+.agenda-desligado {
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  border-radius: var(--raio);
+  padding: 8px 12px;
+  font-size: 12.5px;
+  color: #92400E;
+  margin: 0 0 12px;
+}
+.agenda-desligado a { color: #92400E; }
+
+/* Configuracoes: link no rodape da lateral, e nao item de menu. */
+.link-lateral {
+  display: block;
+  color: rgba(255, 255, 255, .78);
+  text-decoration: none;
+  font-size: 13px;
+  padding: 6px 12px;
+}
+.link-lateral:hover, .link-lateral.ativo { color: #fff; }
+
+.previsao { list-style: none; padding: 0; margin: 6px 0 12px; font-size: 13px; }
+.previsao-fora { color: var(--texto-fraco); }
+.previa {
+  background: #F8FAFC;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  padding: 12px;
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.aviso-forte { color: #B91C1C; font-weight: 600; }
+.rotulo-fraco { color: var(--texto-fraco); font-size: 12px; }

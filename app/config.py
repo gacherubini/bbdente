@@ -25,6 +25,11 @@ class Config(BaseSettings):
     sessao_horas: int = 12
     clinica_id_padrao: int = 1
     extrato_sqlite: str = "dados_extraidos/dentalis.sqlite"
+    # Segredo do endpoint que o relogio externo chama (`POST /tarefas/lembretes`).
+    # Vazio significa "nao ha tarefa agendada aqui", e o endpoint responde 404 —
+    # ambiente sem segredo nao pode ter uma porta que qualquer um abre mandando o
+    # cabecalho vazio.
+    tarefas_token: str = ""
     # Em producao o cookie de sessao so viaja por HTTPS. Fica False no dev local
     # porque o navegador recusa cookie secure em http://localhost.
     cookie_seguro: bool = False

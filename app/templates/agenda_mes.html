@@ -20,6 +20,13 @@
   </div>
 </div>
 
+{% if not lembrete_ativo %}
+<p class="agenda-desligado">
+  Os <b>lembretes de WhatsApp desligados</b> — ninguém está sendo avisado da
+  consulta. <a href="/configuracoes">ligar</a>
+</p>
+{% endif %}
+
 <div class="agenda-rolagem">
 <table class="agenda-mes">
   <thead>

@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block titulo %}Configurações — BDDente{% endblock %}
+{% block conteudo %}
+<h1>Configurações</h1>
+<p class="legenda-topo">
+  O WhatsApp da clínica, o lembrete da véspera e o texto que sai.
+</p>
+
+{% if erro %}<p class="painel-erro">{{ erro }}</p>{% endif %}
+
+<h2 class="titulo-bloco">WhatsApp</h2>
+<div class="cartao">
+  {% if simulado %}
+  <p><b>nenhum WhatsApp conectado</b></p>
+  <p class="ajuda-campo">
+    O envio está <b>simulado</b>: as mensagens ficam registradas aqui embaixo e
+    <b>nada sai para ninguém</b>. Ler o QR code e conectar o aparelho é o passo
+    seguinte, e depende do chip novo existir.
+  </p>
+  {% else %}
+  <p>
+    <b>{{ estado | replace('_', ' ') | lower }}</b>
+    {# Quem corre o risco de perder o numero tem direito de ver na tela qual
+       risco esta correndo. #}
+    <br><span class="rotulo-fraco">
+      Enviando pelo WhatsApp conectado por QR (não oficial)
+    </span>
+  </p>
+  {% endif %}
+</div>
+
+<h2 class="titulo-bloco">Lembretes</h2>
+<form class="cartao-form" method="post" action="/configuracoes">
+  {# A chave geral e o primeiro controle do bloco, com o texto explicando que
+     religar nao dispara acumulado. Chave que a pessoa tem medo de mexer nao e
+     chave. #}
+  <label class="rotulo">Mandar lembrete um dia antes</label>
+  <div class="escopos">
+    <label>
+      <input type="radio" name="lembrete_ativo" value="1"
+             {{ 'checked' if configuracao.lembrete_ativo }}> LIGADO
+    </label>
+    <label>
+      <input type="radio" name="lembrete_ativo" value="0"
+             {{ 'checked' if not configuracao.lembrete_ativo }}> DESLIGADO
+    </label>
+  </div>
+  <p class="ajuda-campo">
+    Desligado, ninguém recebe nada. <b>Religar não manda o que ficou para
+    trás</b>: a fila é a agenda de amanhã, não um saco de mensagens acumuladas.
+  </p>
+
+  <div class="linha-dupla agenda-linha">
+    <div>
+      <label class="rotulo" for="lembrete_hora">Disparo às</label>
+      <input type="time" id="lembrete_hora" name="lembrete_hora"
+             value="{{ configuracao.lembrete_hora.strftime('%H:%M') }}">
+    </div>
+    <div>
+      <label class="rotulo" for="lembrete_horas_antes">Antecedência (horas)</label>
+      <input type="text" id="lembrete_horas_antes" name="lembrete_horas_antes"
+             value="{{ configuracao.lembrete_horas_antes }}">
+    </div>
+  </div>
+
+  <label class="rotulo" for="lembrete_teto_diario">Teto por dia</label>
+  <input type="text" id="lembrete_teto_diario" name="lembrete_teto_diario"
+         value="{{ configuracao.lembrete_teto_diario }}">
+  <p class="ajuda-campo">
+    Volume baixo e ritmo irregular são o que separa um lembrete de um disparo em
+    massa — e é isso que evita o número ser bloqueado.
+  </p>
+
+  <label class="rotulo" for="endereco">Endereço do consultório</label>
+  <input type="text" id="endereco" name="endereco" value="{{ configuracao.endereco or '' }}">
+  <label class="rotulo" for="telefone_clinica">Telefone da clínica</label>
+  <input type="text" id="telefone_clinica" name="telefone_clinica"
+         value="{{ configuracao.telefone_clinica or '' }}">
+  <p class="ajuda-campo">Viram <code>{endereco}</code> e <code>{telefone_clinica}</code>.</p>
+
+  <div class="acoes-form">
+    <button type="submit" class="primario">Salvar</button>
+  </div>
+</form>
+
+<div class="cartao">
+  <p>
+    <b>Último disparo:</b>
+    {% if ultimo_disparo %}
+      {{ ultimo_disparo.strftime('%d/%m/%Y às %H:%M') }}
+      {% if disparo_velho %}
+      <span class="aviso-forte">há mais de 48h — o disparo pode ter parado</span>
+      {% endif %}
+    {% else %}nenhum ainda{% endif %}
+  </p>
+
+  <p class="titulo-cartao">
+    Próximo disparo — {{ vao_receber | length + nao_recebem | length }} consulta(s)
+  </p>
+  <ul class="previsao">
+    <li><b>{{ vao_receber | length }}</b> vão receber</li>
+    {% for linha in nao_recebem %}
+    <li class="previsao-fora">
+      {{ linha.hora }} · {{ linha.nome }} —
+      {{ motivos.get(linha.motivo, linha.motivo) }}
+      {% if linha.paciente_id %}
+      · <a href="/pacientes/{{ linha.paciente_id }}/editar">ver ficha</a>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+
+  {# Idempotente por construcao (o UNIQUE do lembrete): clicar duas vezes nao
+     manda duas vezes, e e por isso que este botao pode existir sem medo. #}
+  <form method="post" action="/configuracoes/enviar-agora">
+    <button type="submit" class="secundario">Enviar agora os de amanhã</button>
+  </form>
+</div>
+
+<h2 class="titulo-bloco">Texto da mensagem</h2>
+<form class="cartao-form" method="post" action="/configuracoes/modelo">
+  <label class="rotulo" for="texto">O que a paciente recebe</label>
+  <textarea id="texto" name="texto" rows="6">{{ texto }}</textarea>
+  <p class="ajuda-campo">
+    Variáveis: {% for v in variaveis %}<code>{{ '{' }}{{ v }}{{ '}' }}</code>{{ ', ' if not loop.last }}{% endfor %}.
+    <br><b>Não existe</b> variável de tratamento, dente, valor ou anotação — a
+    mensagem é lida na tela de bloqueio, e prontuário não vai para lá.
+  </p>
+  <div class="acoes-form">
+    <button type="submit" class="primario">Salvar texto</button>
+  </div>
+</form>
+
+<p class="rotulo">Prévia</p>
+{# Gente que nao existe, de proposito: previa e tela, e tela com nome de paciente
+   vira print no grupo da familia. #}
+<pre class="previa" id="previa">{{ previa }}</pre>
+
+<h2 class="titulo-bloco">Últimos envios</h2>
+<table>
+  <thead>
+    <tr><th>Quando</th><th>Número</th><th>Situação</th><th>Motivo</th></tr>
+  </thead>
+  <tbody>
+  {% for envio in envios %}
+    <tr>
+      <td>{{ (envio.enviado_em or envio.criado_em).strftime('%d/%m %H:%M') }}</td>
+      <td>{{ envio.numero or '—' }}</td>
+      <td>{{ envio.situacao.value | lower }}</td>
+      <td>{{ motivos.get(envio.motivo, envio.motivo or '') }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" style="color:var(--texto-fraco)">Nada ainda.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

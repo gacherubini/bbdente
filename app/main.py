@@ -3,7 +3,9 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from app.agenda import configuracoes as agenda_configuracoes
 from app.agenda import rotas as agenda_rotas
+from app.agenda import tarefas as agenda_tarefas
 from app.auth import rotas as auth_rotas
 from app.auth.sessao import PrecisaLogar, redirecionar_para_login
 from app.catalogo import rotas as catalogo_rotas
@@ -30,6 +32,8 @@ def criar_app() -> FastAPI:
     app.include_router(catalogo_rotas.router)
     app.include_router(financeiro_rotas.router)
     app.include_router(agenda_rotas.router)
+    app.include_router(agenda_tarefas.router)
+    app.include_router(agenda_configuracoes.router)
 
     @app.get("/saude")
     def saude() -> dict[str, str]:

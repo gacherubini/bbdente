@@ -373,3 +373,86 @@ def _fechar(
     lembrete.situacao = situacao
     lembrete.motivo = motivo
     sessao.commit()
+
+
+@dataclass(frozen=True)
+class LinhaDaPrevisao:
+    """Uma pessoa do proximo disparo, e o que vai acontecer com ela."""
+
+    nome: str
+    paciente_id: int | None
+    hora: str
+    recebe: bool
+    motivo: str | None
+
+
+def previsao(sessao: Session, *, clinica_id: int, agora: datetime) -> list[LinhaDaPrevisao]:
+    """Quem vai e quem NAO vai receber no proximo disparo, sem gravar nada.
+
+    A parte que importa e a segunda: "3 sem permissao de WhatsApp, 1 sem numero"
+    e a unica informacao da tela sobre a qual ela consegue agir HOJE, com a
+    paciente na cadeira. Por isso a lista traz nome e link para a ficha — aqui e
+    a tela dela, nao uma mensagem que sai para fora.
+    """
+    configuracao = configuracao_de(sessao, clinica_id=clinica_id)
+    limite = agora + timedelta(hours=configuracao.lembrete_horas_antes)
+    agendamentos = [
+        agendamento
+        for agendamento in sessao.scalars(
+            select(Agendamento)
+            .where(
+                Agendamento.clinica_id == clinica_id,
+                Agendamento.dia.between(agora.date(), limite.date()),
+                Agendamento.situacao.in_(SITUACOES_VIVAS),
+                Agendamento.excluido_em.is_(None),
+            )
+            .order_by(Agendamento.dia, Agendamento.inicio, Agendamento.id)
+        ).all()
+        if agora < _quando(agendamento) <= limite
+    ]
+    contatos = contatos_de(
+        sessao,
+        clinica_id=clinica_id,
+        paciente_ids={a.paciente_id for a in agendamentos if a.paciente_id},
+    )
+
+    linhas = []
+    for agendamento in agendamentos:
+        _, motivo = _destino(agendamento, contatos)
+        contato = contatos.get(agendamento.paciente_id)
+        linhas.append(
+            LinhaDaPrevisao(
+                nome=contato.nome if contato else (agendamento.nome_avulso or ""),
+                paciente_id=agendamento.paciente_id,
+                hora=agendamento.inicio.strftime("%H:%M"),
+                recebe=motivo is None,
+                motivo=motivo,
+            )
+        )
+    return linhas
+
+
+def ultimos_envios(sessao: Session, *, clinica_id: int, limite: int = 50) -> list[Lembrete]:
+    """Os ultimos lembretes, mais novos primeiro. E o extrato do que saiu."""
+    return list(
+        sessao.scalars(
+            select(Lembrete)
+            .where(Lembrete.clinica_id == clinica_id)
+            .order_by(Lembrete.criado_em.desc(), Lembrete.id.desc())
+            .limit(limite)
+        ).all()
+    )
+
+
+def ultimo_disparo(sessao: Session, *, clinica_id: int) -> datetime | None:
+    """Quando saiu a ultima mensagem. E o monitor do cron, e e de graca: cron que
+    morre morre em silencio, e sem isto ninguem perceberia."""
+    return sessao.scalars(
+        select(Lembrete.enviado_em)
+        .where(
+            Lembrete.clinica_id == clinica_id,
+            Lembrete.enviado_em.is_not(None),
+        )
+        .order_by(Lembrete.enviado_em.desc())
+        .limit(1)
+    ).one_or_none()

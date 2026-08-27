@@ -160,3 +160,16 @@ def test_o_aviso_de_lancamento_nao_empurra_a_tela():
     corpo = re.search(r"\.aviso-flutuante\s*\{([^}]*)\}", css, re.S)
     assert corpo, "regra .aviso-flutuante nao encontrada"
     assert re.search(r"position\s*:\s*fixed", corpo.group(1))
+
+
+def test_configuracoes_fica_no_rodape_da_lateral_e_nao_no_menu():
+    """Oito itens e onde uma barra lateral deixa de ser lida e passa a ser
+    varrida. Configuracao e usada duas vezes por ano — quando o WhatsApp cai — e
+    o caminho ate ela e o aviso da agenda, nao a memoria de que existe uma aba.
+    """
+    html = BASE.read_text(encoding="utf-8")
+    navegacao = html.split('<ul class="navegacao">')[1].split("</ul>")[0]
+    rodape = html.split('<div class="rodape-lateral">')[1]
+
+    assert "/configuracoes" not in navegacao
+    assert "/configuracoes" in rodape

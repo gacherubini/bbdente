@@ -32,6 +32,10 @@
           </span>
         </a>
         {% endif %}
+        {# Configuracao nao e aba: e usada duas vezes por ano, e o caminho
+           principal ate ela e o aviso da agenda quando o WhatsApp cai. #}
+        <a class="link-lateral {{ 'ativo' if aba == 'configuracoes' }}"
+           href="/configuracoes">Configurações</a>
         <form method="post" action="/logout" class="sair">
           <button type="submit">Sair</button>
         </form>

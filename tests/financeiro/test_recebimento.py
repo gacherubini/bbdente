@@ -232,13 +232,21 @@ def test_valor_negativo_e_recusado(sessao, cliente, cenario):
 
 def test_data_no_futuro_e_recusada(sessao, cliente, cenario):
     """Recebimento e fato, nao promessa: dinheiro que ainda nao entrou nao entra
-    no caixa de hoje."""
+    no caixa de hoje.
+
+    `date.today()` lido AQUI, e nao o `HOJE` do topo do arquivo: aquele e
+    avaliado na importacao, e a suite inteira roda depois. Em 27/08/2026 este
+    teste falhou porque a suite atravessou a meia-noite entre uma leitura e a
+    outra, e o "amanha" do teste virou o "hoje" do servico. A janela continua
+    existindo — so encolheu de meia hora para microssegundos, porque a service
+    do financeiro le o relogio por dentro.
+    """
     _, _, paciente = cenario
     resposta = cliente.post(
         "/financeiro/recebimento",
         data=formulario(
             paciente_id=str(paciente.id),
-            data=(HOJE + timedelta(days=1)).isoformat(),
+            data=(date.today() + timedelta(days=1)).isoformat(),
         ),
     )
     assert resposta.status_code == 200

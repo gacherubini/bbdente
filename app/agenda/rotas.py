@@ -25,6 +25,7 @@ from app.agenda.service import (
     NaoEncontrado,
     PacienteDeOutraClinica,
     SemDono,
+    configuracao_de,
     conflitos_de,
     excluir,
     grade,
@@ -119,6 +120,11 @@ def tela(
             "anterior": _vizinho(escolhido, de_mes, -1),
             "proximo": _vizinho(escolhido, de_mes, +1),
             "conflito": conflito,
+            # Silencio que parece funcionamento e a pior forma de desligar: ela
+            # confiaria que a paciente foi avisada, e a paciente nao foi.
+            "lembrete_ativo": configuracao_de(
+                sessao, clinica_id=usuario.clinica_id
+            ).lembrete_ativo,
         },
     )
 
