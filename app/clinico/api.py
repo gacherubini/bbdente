@@ -6,6 +6,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+# Fronteira de modulo: agenda e paciente so pelas services deles, nunca pelo model.
+from app.agenda.service import vincular_paciente
 from app.auth.models import Usuario
 from app.auth.sessao import usuario_atual
 from app.clinico.models import Odontograma
@@ -20,8 +22,6 @@ from app.clinico.service import (
     lancar_atendimento,
     validar_atendimento,
 )
-
-# Fronteira de modulo: paciente so pela service dele, nunca pelo model.
 from app.pacientes.service import criar as criar_paciente
 from app.pacientes.service import obter as obter_paciente
 from app.pacientes.service import semelhantes
@@ -119,6 +119,9 @@ class Atendimento(BaseModel):
     confirmar: bool = False
     itens: list[ItemPendente] = Field(default_factory=list)
     numero_odontograma: int = 1
+    # De qual horario da agenda veio este atendimento, quando veio de um. So
+    # serve para dar dono ao horario avulso no fim — nunca decide nada aqui.
+    agendamento_id: int | None = None
 
 
 @router.get("/odontograma/{paciente_id}")
@@ -248,6 +251,17 @@ def concluir_atendimento(
         raise HTTPException(status_code=422, detail=str(erro)) from erro
     except LookupError as erro:
         raise HTTPException(status_code=404, detail=str(erro)) from erro
+
+    # Depois de o prontuario estar gravado, e sem poder derruba-lo: o vinculo
+    # com a agenda e o ultimo passo e o menos importante dos dois.
+    if corpo.agendamento_id is not None:
+        vincular_paciente(
+            sessao,
+            clinica_id=usuario.clinica_id,
+            usuario_id=usuario.id,
+            agendamento_id=corpo.agendamento_id,
+            paciente_id=paciente_id,
+        )
 
     sessao.commit()
     return {"paciente_id": paciente_id, "lancamentos": len(lancamentos)}

@@ -167,7 +167,16 @@
     mostrarErro("");
   }
 
+  function agendamentoDaTela() {
+    /* De qual horario da agenda veio este atendimento, quando veio de um.
+       Vazio e o caso normal — a boca em branco tambem se abre sozinha. */
+    var janela = el("janela-concluir");
+    var bruto = janela && janela.dataset ? janela.dataset.agendamento : "";
+    return bruto ? Number(bruto) : null;
+  }
+
   function concluir(corpo) {
+    corpo.agendamento_id = agendamentoDaTela();
     return pedirJson("/api/atendimento", corpo).then(function (r) {
       // 200 com 'parecidos' significa: nao gravei, decide voce.
       if (r.status === 200 && r.dados.parecidos) {

@@ -113,7 +113,6 @@ def tela(
             "hoje": date.today(),
             "grade": montada,
             "periodo": periodo,
-            "horas": range(montada.primeira_hora, montada.ultima_hora + 1),
             "dias_da_semana": DIAS_DA_SEMANA,
             "meses": MESES,
             "nome_do_mes": MESES[escolhido.month - 1],

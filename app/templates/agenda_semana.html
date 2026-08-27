@@ -47,20 +47,22 @@
     </tr>
   </thead>
   <tbody>
-    {% for h in horas %}
-    <tr>
-      <th class="agenda-hora">{{ '%02d:00' | format(h) }}</th>
+    {# Uma linha por meia hora: a consulta de 30 minutos e a mais comum, e cada
+       hora tem de oferecer os dois comecos. #}
+    {% for hora, minuto in grade.faixas %}
+    {% set relogio = '%02d:%02d' | format(hora, minuto) %}
+    <tr class="{{ 'agenda-meia' if minuto }}">
+      <th class="agenda-hora">{{ relogio }}</th>
       {% for d in periodo.dias %}
-      {% set cartoes = grade.do_dia(d) | selectattr('inicio.hour', 'equalto', h) | list %}
       <td class="{{ 'agenda-hoje' if d == hoje }}">
-        {% for c in cartoes %}
+        {% for c in grade.no_slot(d, hora, minuto) %}
         {% include "_agenda_cartao.html" %}
         {% endfor %}
         {# A celula vazia e o botao: a pergunta do telefone e "onde eu encaixo
            ela?", e a resposta tem de ser clicavel de onde ela esta olhando. #}
         <a class="agenda-vago"
-           href="/agenda/novo?dia={{ d.isoformat() }}&hora={{ '%02d:00' | format(h) }}"
-           title="marcar {{ '%02d:00' | format(h) }}">+</a>
+           href="/agenda/novo?dia={{ d.isoformat() }}&hora={{ relogio }}"
+           title="marcar {{ relogio }}">+</a>
       </td>
       {% endfor %}
     </tr>

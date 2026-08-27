@@ -34,6 +34,13 @@
     </form>
     {% endif %}
     {% endfor %}
+    {# Atender: quem tem cadastro vai direto para a ficha dela; quem e avulso vai
+       para a boca em branco levando o horario, e o cadastro nasce no fim. #}
+    {% if c.paciente_id %}
+    <a href="/odontograma/{{ c.paciente_id }}">atender</a>
+    {% else %}
+    <a href="/odontograma?agendamento={{ c.id }}">atender</a>
+    {% endif %}
     <a href="/agenda/{{ c.id }}">remarcar</a>
     <form method="post" action="/agenda/{{ c.id }}/excluir">
       <button type="submit" class="ligacao" title="foi engano — some da agenda">

@@ -6,6 +6,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
 
+# Fronteira de modulo: a agenda so pela service dela.
+from app.agenda.service import obter as obter_agendamento
+
 # Excecao consciente a fronteira de modulo: clinico importa auth.models.Clinica so
 # para ler o nome no cabecalho do PDF. Se auth ganhar um service.clinica(id),
 # troque por ele. Anotado aqui para nao virar precedente.
@@ -30,9 +33,34 @@ from app.templates import templates
 router = APIRouter()
 
 
+def _horario_avulso(sessao: Session, *, clinica_id: int, bruto: str) -> dict | None:
+    """O horario da agenda de onde veio o clique, se houver um utilizavel.
+
+    So horario SEM paciente interessa: quem ja tem cadastro vai direto para o
+    odontograma dela, e nao passa por aqui.
+    """
+    try:
+        agendamento_id = int(bruto)
+    except (TypeError, ValueError):
+        return None
+    marcado = obter_agendamento(
+        sessao, clinica_id=clinica_id, agendamento_id=agendamento_id
+    )
+    if marcado is None or marcado.paciente_id is not None:
+        return None
+    return {
+        "id": marcado.id,
+        "nome": marcado.nome_avulso or "",
+        "telefone": marcado.telefone_avulso or "",
+        "hora": marcado.inicio.strftime("%H:%M"),
+        "dia": marcado.dia,
+    }
+
+
 @router.get("/odontograma", response_class=HTMLResponse)
 def em_branco(
     request: Request,
+    agendamento: str = Query(""),
     usuario: Usuario = Depends(usuario_atual),
     sessao: Session = Depends(obter_sessao),
 ):
@@ -41,13 +69,20 @@ def em_branco(
     E o fluxo de quem esta com a pessoa na cadeira: marca o dente e o tratamento
     primeiro, diz de quem e no fim. Nada daqui vai para o banco enquanto o
     atendimento nao for concluido — quem grava e /api/atendimento.
+
+    `?agendamento=` vem do botao "atender" de um horario avulso da agenda: a tela
+    ja sabe o nome e o telefone que foram anotados ao telefone, para ninguem
+    digitar de novo. Horario invalido nao e erro — abre a boca em branco de
+    sempre, porque o atendimento importa mais que a agenda.
     """
+    marcado = _horario_avulso(sessao, clinica_id=usuario.clinica_id, bruto=agendamento)
     return templates.TemplateResponse(
         request,
         "odontograma.html",
         {
             "aba": "odontograma",
             "rascunho": True,
+            "agendamento": marcado,
             "estado": estado_vazio(),
             # Sem paciente ainda, entao sem convenio: o preco que aparece no
             # painel e o do PARTICULAR, que e o caso comum. A dentista corrige o

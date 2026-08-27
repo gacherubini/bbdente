@@ -351,3 +351,44 @@ def test_o_fato_vence_a_anotacao_quando_ela_marcou_falta_por_engano(sessao, cena
 
     assert cartao.atendida is True
     assert cartao.situacao == "FALTOU"
+
+
+def test_a_grade_tem_uma_faixa_a_cada_meia_hora(sessao, cenario):
+    """Consulta de 30 minutos e a mais comum: com linha de uma hora, marcar as
+    09:30 exigia abrir o formulario e corrigir a hora na mao."""
+    clinica, _, _ = cenario
+    grade = service.grade(sessao, clinica_id=clinica.id, periodo=service.semana_de(QUARTA))
+
+    assert (8, 0) in grade.faixas
+    assert (8, 30) in grade.faixas
+    assert len(grade.faixas) == (grade.ultima_hora - grade.primeira_hora + 1) * 2
+
+
+def test_cada_cartao_cai_na_sua_meia_hora(sessao, cenario):
+    clinica, usuario, _ = cenario
+    for hora, nome in [(time(9, 0), "cedo"), (time(9, 30), "meia")]:
+        service.marcar(
+            sessao, clinica_id=clinica.id, usuario_id=usuario.id,
+            nome_avulso=nome, dia=QUARTA, inicio=hora,
+        )
+
+    grade = service.grade(sessao, clinica_id=clinica.id, periodo=service.semana_de(QUARTA))
+
+    assert [c.nome for c in grade.no_slot(QUARTA, 9, 0)] == ["cedo"]
+    assert [c.nome for c in grade.no_slot(QUARTA, 9, 30)] == ["meia"]
+
+
+def test_hora_quebrada_cai_na_meia_hora_de_baixo(sessao, cenario):
+    """09:15 e 09:45 existem — encaixe nao respeita grade. Cada um aparece na
+    faixa que ja comecou, nunca some da tela por nao bater com o relogio."""
+    clinica, usuario, _ = cenario
+    for hora, nome in [(time(9, 15), "quinze"), (time(9, 45), "quarenta e cinco")]:
+        service.marcar(
+            sessao, clinica_id=clinica.id, usuario_id=usuario.id,
+            nome_avulso=nome, dia=QUARTA, inicio=hora,
+        )
+
+    grade = service.grade(sessao, clinica_id=clinica.id, periodo=service.semana_de(QUARTA))
+
+    assert [c.nome for c in grade.no_slot(QUARTA, 9, 0)] == ["quinze"]
+    assert [c.nome for c in grade.no_slot(QUARTA, 9, 30)] == ["quarenta e cinco"]

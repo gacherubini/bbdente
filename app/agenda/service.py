@@ -367,6 +367,34 @@ class Grade:
     def do_dia(self, dia: date) -> list[Cartao]:
         return self.cartoes.get(dia, [])
 
+    @property
+    def faixas(self) -> list[tuple[int, int]]:
+        """As linhas da grade, de meia em meia hora.
+
+        Consulta de 30 minutos e a mais comum do consultorio: com linha de uma
+        hora, marcar as 09:30 exigia abrir o formulario e corrigir a hora na mao,
+        que e exatamente o clique a mais que faz a agenda voltar para o papel.
+        """
+        return [
+            (hora, minuto)
+            for hora in range(self.primeira_hora, self.ultima_hora + 1)
+            for minuto in (0, 30)
+        ]
+
+    def no_slot(self, dia: date, hora: int, minuto: int) -> list[Cartao]:
+        """Os cartoes daquela meia hora.
+
+        Hora quebrada (09:15, 09:45) cai na faixa que ja comecou — encaixe nao
+        respeita grade, e o horario nao pode sumir da tela por nao bater com o
+        relogio.
+        """
+        return [
+            cartao
+            for cartao in self.do_dia(dia)
+            if cartao.inicio.hour == hora
+            and (cartao.inicio.minute >= 30) == (minuto >= 30)
+        ]
+
     def sem_hora_no_dia(self, dia: date) -> list[Contato]:
         """Quem foi atendido no dia sem ter horario marcado.
 
@@ -452,3 +480,46 @@ def grade(sessao: Session, *, clinica_id: int, periodo: Periodo) -> Grade:
             [ULTIMA_HORA_PADRAO] + [a.fim.hour + (1 if a.fim.minute else 0) for a in agendamentos]
         ),
     )
+
+
+def vincular_paciente(
+    sessao: Session,
+    *,
+    clinica_id: int,
+    usuario_id: int | None,
+    agendamento_id: int,
+    paciente_id: int,
+) -> bool:
+    """Da dono ao horario avulso quando o atendimento dele e concluido.
+
+    **Nunca levanta excecao, nunca deixa a sessao suja.** Quem chama e o
+    `clinico.api`, depois de o prontuario ja estar gravado — e o prontuario e
+    mais importante que a agenda. Um id velho numa aba aberta ha uma hora, um
+    horario de outra clinica ou um horario que ja tem dono nao podem fazer um
+    tratamento se perder. Devolve se vinculou, para quem quiser contar.
+
+    Horario que ja tem `paciente_id` fica como esta: reescrever de quem era
+    aquele horario seria apagar a historia sem ninguem pedir.
+    """
+    agendamento = obter(sessao, clinica_id=clinica_id, agendamento_id=agendamento_id)
+    if agendamento is None or agendamento.paciente_id is not None:
+        return False
+
+    antes = _retrato(agendamento)
+    agendamento.paciente_id = paciente_id
+    # O nome digitado ao telefone sai: quem manda agora e o cadastro. O que foi
+    # escrito ali continua legivel na auditoria.
+    agendamento.nome_avulso = None
+    sessao.flush()
+
+    registrar(
+        sessao,
+        clinica_id=clinica_id,
+        usuario_id=usuario_id,
+        acao="VINCULAR",
+        entidade="agendamento",
+        entidade_id=agendamento.id,
+        antes=antes,
+        depois=_retrato(agendamento),
+    )
+    return True
