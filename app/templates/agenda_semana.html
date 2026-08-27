@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block largura %}larga{% endblock %}
+{% block titulo %}Agenda — BDDente{% endblock %}
+{% block conteudo %}
+<div class="agenda-topo">
+  <div>
+    <h1>Agenda</h1>
+    <p class="legenda-topo">
+      {{ periodo.de.day }} a {{ periodo.ate.day }} de {{ meses[periodo.ate.month - 1] }}
+      de {{ periodo.ate.year }}
+    </p>
+  </div>
+  <div class="agenda-controles">
+    <div class="filtros">
+      <a class="filtro ativo" href="/agenda?dia={{ dia.isoformat() }}">Semana</a>
+      <a class="filtro" href="/agenda?vista=mes&dia={{ dia.isoformat() }}">Mês</a>
+    </div>
+    <div class="agenda-navegar">
+      <a href="/agenda?dia={{ anterior.isoformat() }}">‹ anterior</a>
+      <a href="/agenda?dia={{ hoje.isoformat() }}">hoje</a>
+      <a href="/agenda?dia={{ proximo.isoformat() }}">próxima ›</a>
+    </div>
+  </div>
+</div>
+
+{% if conflito %}
+{# Conflito avisa depois de gravar, nunca antes de deixar: encaixe e urgencia
+   acontecem, e sistema que proibe e sistema contornado. #}
+<p class="aviso">
+  Esse horário se sobrepõe a {{ conflito }} outro{{ '' if conflito == '1' else 's' }} —
+  o horário <b>foi marcado assim mesmo</b>. Se foi engano, é só remarcar.
+</p>
+{% endif %}
+
+<div class="agenda-rolagem">
+<table class="agenda-semana">
+  <thead>
+    <tr>
+      <th class="agenda-hora"></th>
+      {% for d in periodo.dias %}
+      <th class="{{ 'agenda-hoje' if d == hoje }}">
+        <a href="/agenda?dia={{ d.isoformat() }}">
+          {{ dias_da_semana[loop.index0] }} {{ d.day }}
+        </a>
+      </th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for h in horas %}
+    <tr>
+      <th class="agenda-hora">{{ '%02d:00' | format(h) }}</th>
+      {% for d in periodo.dias %}
+      {% set cartoes = grade.do_dia(d) | selectattr('inicio.hour', 'equalto', h) | list %}
+      <td class="{{ 'agenda-hoje' if d == hoje }}">
+        {% for c in cartoes %}
+        {% include "_agenda_cartao.html" %}
+        {% endfor %}
+        {# A celula vazia e o botao: a pergunta do telefone e "onde eu encaixo
+           ela?", e a resposta tem de ser clicavel de onde ela esta olhando. #}
+        <a class="agenda-vago"
+           href="/agenda/novo?dia={{ d.isoformat() }}&hora={{ '%02d:00' | format(h) }}"
+           title="marcar {{ '%02d:00' | format(h) }}">+</a>
+      </td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+    <tr class="agenda-sem-hora">
+      {# Vem do prontuario, e por isso nao tem hora: `lancamento` guarda data. #}
+      <th class="agenda-hora">sem hora marcada</th>
+      {% for d in periodo.dias %}
+      <td>
+        {% for contato in grade.sem_hora_no_dia(d) %}
+        <a href="/odontograma/{{ contato.paciente_id }}">{{ contato.nome }}</a>
+        {% endfor %}
+      </td>
+      {% endfor %}
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p class="agenda-legenda">
+  <b>●</b> hoje · <b>✓</b> confirmado · <b>✗</b> faltou · <b>•</b> atendida ·
+  <s>riscado</s> desmarcado
+</p>
+{% endblock %}

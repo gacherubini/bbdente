@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block largura %}estreita{% endblock %}
+{% block titulo %}
+  {%- if dados.id %}Remarcar horário{% else %}Marcar horário{% endif %} — BDDente
+{% endblock %}
+{% block conteudo %}
+<h1>{% if dados.id %}Remarcar horário{% else %}Marcar horário{% endif %}</h1>
+<p class="legenda-topo">
+  <a href="/agenda?dia={{ dados.dia }}">voltar para a agenda</a>
+</p>
+
+{% if erro %}<p class="painel-erro">{{ erro }}</p>{% endif %}
+
+<form class="cartao-form" method="post"
+      action="{% if dados.id %}/agenda/{{ dados.id }}{% else %}/agenda{% endif %}">
+  {% if not dados.id %}
+  {# O campo de busca E o campo de nome. Escolher da lista grava o paciente_id;
+     digitar e seguir grava o nome avulso. Uma pergunta, duas saidas — sem
+     "esta paciente ja existe? [sim] [nao]" antes de ela poder escrever.
+     Sem JavaScript o campo continua sendo texto livre e grava avulso. #}
+  <label class="rotulo" for="agenda-nome">Quem vem</label>
+  <input type="text" id="agenda-nome" name="nome" value="{{ dados.nome }}"
+         autocomplete="off" placeholder="nome da paciente, ou só o primeiro nome"
+         list="agenda-achados" autofocus>
+  <datalist id="agenda-achados"></datalist>
+  <input type="hidden" id="agenda-paciente-id" name="paciente_id"
+         value="{{ dados.paciente_id }}">
+  <p class="ajuda-campo" id="agenda-quem-ajuda">
+    Se não achar na lista, escreva assim mesmo — o horário é marcado sem cadastro.
+  </p>
+
+  <label class="rotulo" for="agenda-telefone">Telefone</label>
+  <input type="text" id="agenda-telefone" name="telefone" value="{{ dados.telefone }}"
+         placeholder="(51) 99999-8888">
+  <p class="ajuda-campo">
+    Opcional. Sem telefone o horário é marcado do mesmo jeito — só não dá para
+    avisar depois.
+  </p>
+  {% else %}
+  <p class="agenda-quem">
+    <span class="rotulo">Quem vem</span>
+    <b>{{ dados.nome }}</b>
+    {% if dados.telefone %}<i>{{ dados.telefone }}</i>{% endif %}
+  </p>
+  <p class="ajuda-campo">
+    Trocar a pessoa não é remarcar: desmarque este horário e marque outro, para a
+    auditoria mostrar as duas coisas.
+  </p>
+  {% endif %}
+
+  <div class="linha-dupla agenda-linha">
+    <div>
+      <label class="rotulo" for="agenda-dia">Dia</label>
+      <input type="date" id="agenda-dia" name="dia" value="{{ dados.dia }}" required>
+    </div>
+    <div>
+      <label class="rotulo" for="agenda-inicio">Hora</label>
+      <input type="time" id="agenda-inicio" name="inicio" value="{{ dados.inicio }}"
+             step="300" required>
+    </div>
+  </div>
+
+  <label class="rotulo" for="agenda-duracao">Duração</label>
+  <select id="agenda-duracao" name="duracao_min">
+    {% for d in duracoes %}
+    <option value="{{ d }}" {{ 'selected' if dados.duracao_min == d | string }}>
+      {{ d }} minutos
+    </option>
+    {% endfor %}
+  </select>
+
+  <label class="rotulo" for="agenda-observacao">Anotação</label>
+  <textarea id="agenda-observacao" name="observacao" rows="2"
+            placeholder="o que ela falou ao telefone">{{ dados.observacao }}</textarea>
+  <p class="ajuda-campo">
+    Fica só na tela da agenda. <b>Não</b> vai para mensagem nenhuma.
+  </p>
+
+  <div class="acoes-form">
+    <button type="submit" class="primario">
+      {% if dados.id %}Remarcar{% else %}Marcar horário{% endif %}
+    </button>
+    <a href="/agenda?dia={{ dados.dia }}">cancelar</a>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+{% if not dados.id %}<script src="{{ estatico('agenda_quem.js') }}"></script>{% endif %}
+{% endblock %}

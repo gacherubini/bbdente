@@ -40,13 +40,17 @@ def test_o_nome_aparece_em_branco_sobre_a_lateral_roxa():
     assert lateral and "roxo" in lateral.group(1)
 
 
-def test_a_navegacao_tem_as_seis_abas():
+def test_a_navegacao_tem_as_sete_abas():
     """Recebimentos entrou em 27/08/2026: dava para ver os atendimentos e nao
     dava para ver o dinheiro que entrou, nem para corrigir um recebimento
-    registrado por engano."""
+    registrado por engano.
+
+    Agenda entrou no mesmo dia, e vem primeiro de proposito: e a tela que
+    responde a pergunta de quem esta com o telefone na mao.
+    """
     html = BASE.read_text(encoding="utf-8")
-    for rotulo in ("Pacientes", "Odontograma", "Atendimentos", "Tratamentos",
-                   "Financeiro", "Recebimentos"):
+    for rotulo in ("Agenda", "Pacientes", "Odontograma", "Atendimentos",
+                   "Tratamentos", "Financeiro", "Recebimentos"):
         assert rotulo in html
 
 

@@ -1,0 +1,44 @@
+{# Um horario na grade. Recebe `c` (Cartao) pelo contexto do laco.
+
+   O nome e link para o odontograma quando ha cadastro, e texto quando e avulso —
+   a diferenca fica visivel sem uma segunda etiqueta. #}
+<div class="agenda-cartao situacao-{{ c.situacao | lower }}">
+  <div class="agenda-cartao-nome">
+    {% if c.paciente_id %}
+    <a href="/odontograma/{{ c.paciente_id }}">{{ c.nome }}</a>
+    {% else %}
+    <span title="sem cadastro">{{ c.nome }}</span>
+    {% endif %}
+    {% if c.atendida %}<b title="atendida neste dia">•</b>
+    {% elif c.situacao == 'CONFIRMADO' %}<b title="confirmado">✓</b>
+    {% elif c.situacao == 'FALTOU' %}<b title="faltou">✗</b>{% endif %}
+  </div>
+  <div class="agenda-cartao-hora">
+    {{ c.inicio.strftime('%H:%M') }}–{{ c.fim.strftime('%H:%M') }}
+    · {{ c.duracao_min }}min
+  </div>
+  {% if c.telefone %}
+  {# Ela esta com o telefone na mao: o numero tem de discar, nao ser copiado. #}
+  <a class="agenda-cartao-fone" href="tel:{{ c.telefone }}">{{ c.telefone }}</a>
+  {% endif %}
+  {% if c.observacao %}
+  <div class="agenda-cartao-nota">{{ c.observacao }}</div>
+  {% endif %}
+  <div class="agenda-cartao-acoes">
+    {% for valor, rotulo in [('CONFIRMADO', 'confirmar'), ('FALTOU', 'faltou'),
+                             ('DESMARCADO', 'desmarcar')] %}
+    {% if c.situacao != valor %}
+    <form method="post" action="/agenda/{{ c.id }}/situacao">
+      <input type="hidden" name="situacao" value="{{ valor }}">
+      <button type="submit" class="ligacao">{{ rotulo }}</button>
+    </form>
+    {% endif %}
+    {% endfor %}
+    <a href="/agenda/{{ c.id }}">remarcar</a>
+    <form method="post" action="/agenda/{{ c.id }}/excluir">
+      <button type="submit" class="ligacao" title="foi engano — some da agenda">
+        engano
+      </button>
+    </form>
+  </div>
+</div>

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block largura %}larga{% endblock %}
+{% block titulo %}Agenda — BDDente{% endblock %}
+{% block conteudo %}
+<div class="agenda-topo">
+  <div>
+    <h1>Agenda</h1>
+    <p class="legenda-topo">{{ nome_do_mes }} de {{ dia.year }}</p>
+  </div>
+  <div class="agenda-controles">
+    <div class="filtros">
+      <a class="filtro" href="/agenda?dia={{ dia.isoformat() }}">Semana</a>
+      <a class="filtro ativo" href="/agenda?vista=mes&dia={{ dia.isoformat() }}">Mês</a>
+    </div>
+    <div class="agenda-navegar">
+      <a href="/agenda?vista=mes&dia={{ anterior.isoformat() }}">‹ anterior</a>
+      <a href="/agenda?vista=mes&dia={{ hoje.isoformat() }}">hoje</a>
+      <a href="/agenda?vista=mes&dia={{ proximo.isoformat() }}">próximo ›</a>
+    </div>
+  </div>
+</div>
+
+<div class="agenda-rolagem">
+<table class="agenda-mes">
+  <thead>
+    <tr>{% for nome in dias_da_semana %}<th>{{ nome }}</th>{% endfor %}</tr>
+  </thead>
+  <tbody>
+    {% for d in periodo.dias %}
+    {% if loop.index0 % 7 == 0 %}<tr>{% endif %}
+    {# Dia de fora do mes escolhido fica apagado, mas continua clicavel: a grade
+       e retangular, e sumir com ele deixaria buracos na primeira linha. #}
+    <td class="{{ 'agenda-hoje' if d == hoje }} {{ 'agenda-fora' if d.month != dia.month }}">
+      <a class="agenda-mes-dia" href="/agenda?dia={{ d.isoformat() }}">
+        <span class="{{ 'agenda-hoje-marca' if d == hoje }}">{{ d.day }}</span>
+        {% set quantos = grade.quantos_no_dia(d) %}
+        {% if quantos %}<span class="agenda-mes-conta">{{ quantos }}</span>{% endif %}
+      </a>
+      {% for c in grade.do_dia(d)[:3] %}
+      <div class="agenda-mes-linha {{ 'agenda-riscado' if c.desmarcado }}">
+        <b>{{ c.inicio.strftime('%H:%M') }}</b>
+        {% if c.paciente_id %}
+        <a href="/odontograma/{{ c.paciente_id }}">{{ c.nome }}</a>
+        {% else %}{{ c.nome }}{% endif %}
+      </div>
+      {% endfor %}
+      {% if grade.do_dia(d) | length > 3 %}
+      <a class="agenda-mais" href="/agenda?dia={{ d.isoformat() }}">
+        +{{ grade.do_dia(d) | length - 3 }}
+      </a>
+      {% endif %}
+    </td>
+    {% if loop.index % 7 == 0 %}</tr>{% endif %}
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}
