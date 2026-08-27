@@ -1,10 +1,12 @@
 """Fronteira publica do modulo auth. Nenhum outro modulo importa auth.models."""
 
+from dataclasses import dataclass
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.auditoria import registrar
-from app.auth.models import Usuario
+from app.auth.models import Clinica, Usuario
 from app.auth.senha import TAMANHO_MINIMO_SENHA, conferir, gerar_hash
 
 
@@ -104,3 +106,35 @@ def trocar_senha(
         depois={"senha_trocada": True},
     )
     return usuario
+
+
+@dataclass(frozen=True)
+class IdentidadeDaClinica:
+    """Como a clinica se apresenta para fora — nada mais que isso.
+
+    Existe para outro modulo nao precisar importar `auth.models` so para
+    escrever "Consultorio Dra. Katia" numa mensagem.
+    """
+
+    clinica: str
+    dentista: str
+
+
+def identidade_da_clinica(sessao: Session, *, clinica_id: int) -> IdentidadeDaClinica:
+    """O nome da clinica e o de quem atende.
+
+    Um usuario so, sem papeis: quem atende e o usuario ativo da clinica. Se nao
+    houver nenhum (base recem-criada), o nome da clinica serve para os dois — e
+    melhor do que uma mensagem assinada por ninguem.
+    """
+    clinica = sessao.get(Clinica, clinica_id)
+    nome_da_clinica = clinica.nome if clinica else ""
+    dentista = sessao.scalars(
+        select(Usuario.nome)
+        .where(Usuario.clinica_id == clinica_id, Usuario.ativo.is_(True))
+        .order_by(Usuario.id)
+        .limit(1)
+    ).one_or_none()
+    return IdentidadeDaClinica(
+        clinica=nome_da_clinica, dentista=dentista or nome_da_clinica
+    )
