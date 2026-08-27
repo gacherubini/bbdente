@@ -2,14 +2,18 @@
 
 Traz os 30 anos de histórico clínico do Dentalis (FoxPro, 1996–2024) para o BDDente.
 
-**Estado: o código está pronto e commitado; a migração ainda não foi executada.**
-Ela nunca rodou porque exige o extrato com dado real de paciente, que não pode ser
-versionado. Este documento é o que falta fazer.
+**Estado: executada.** O histórico clínico entrou em produção e o financeiro foi
+acrescentado em 26/08/2026 (ver *Levar só uma etapa nova para produção*, em
+[`OPERACAO.md`](OPERACAO.md)). Este documento continua sendo **o procedimento**: para
+refazer a migração numa máquina nova, para acrescentar uma etapa, ou para entender o que
+cada regra de conversão decidiu.
 
-## O que falta, em uma lista
+Repetir é seguro: cada etapa é idempotente e nada é gravado se a conferência reprovar.
+
+## Para rodar de novo, em uma lista
 
 1. Ter o extrato (`dados_extraidos/dentalis.sqlite`) na máquina
-2. Rodar os 46 testes que hoje estão em `skipped` e vê-los passar
+2. Rodar os 67 testes que sem ele ficam em `skipped` e vê-los passar
 3. Rodar `python -m migracao` e obter **conferência aprovada**
 4. Conferir os números no banco
 5. Fazer um backup e uma restauração de teste ([`OPERACAO.md`](OPERACAO.md))
@@ -31,12 +35,15 @@ Sem o arquivo, os testes de migração se marcam sozinhos como `skipped`:
 |---|---|
 | `tests/migracao/test_posdente_dados_reais.py` | 4 |
 | `tests/migracao/test_migracao_catalogo.py` | 9 |
-| `tests/migracao/test_migracao_pacientes.py` | 11 |
-| `tests/migracao/test_migracao_lancamentos.py` | 14 |
-| `tests/migracao/test_migracao_completa.py` | 8 |
-| **Total** | **46** |
+| `tests/migracao/test_migracao_pacientes.py` | 12 |
+| `tests/migracao/test_migracao_lancamentos.py` | 15 |
+| `tests/migracao/test_migracao_financeiro.py` | 18 |
+| `tests/migracao/test_migracao_completa.py` | 9 |
+| **Total** | **67** |
 
-Enquanto eles estiverem em `skipped`, a migração **não está verificada** — só escrita.
+Numa máquina sem o extrato eles ficam em `skipped`, e ali a migração **não está
+verificada** — só escrita. Numa máquina com o extrato, é aqui que se descobre se uma
+regra de conversão quebrou.
 
 ## Rodando
 
@@ -57,7 +64,8 @@ Eles são mais baratos que a migração e pegam quase tudo antes de você escrev
 .venv/bin/pytest tests/migracao -v
 ```
 
-Espere **85 passando, 0 skipped**. O mais importante é
+Espere **106 passando, 0 skipped** (39 deles não dependem do extrato e já passam sem
+ele). O mais importante é
 `test_posdente_dados_reais.py`: ele roda o decodificador contra os 44.812 registros e
 confere que produz exatamente 29.350 lançamentos com escopo `REGIOES`, 7.638 de boca,
 7.824 de dente inteiro, e **1 único** registro corrompido (`POSDENTE = "13-3"`, já

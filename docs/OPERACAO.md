@@ -125,6 +125,111 @@ nova** pelo túnel:
 Confira a contagem no destino antes de considerar feito. Para o financeiro:
 28.244 parcelas, soma cobrada R$ 5.808.797,26, soma paga R$ 2.378.315,73.
 
+## O lembrete de WhatsApp
+
+### Hoje: nada sai para ninguém
+
+O encanamento inteiro está pronto e testado, mas **desligado por dois motivos
+independentes**, e é preciso desfazer os dois para uma mensagem sair:
+
+1. `configuracao_clinica.lembrete_ativo` nasce `false` — deploy que já sai mandando
+   mensagem para paciente é a definição de acidente.
+2. Quem "envia" é o `ProvedorFake`, que registra no banco o que enviaria e não fala
+   com ninguém.
+
+A tela `/configuracoes` diz isso em voz alta: enquanto o provedor for o de mentira, ela
+mostra *"nenhum WhatsApp conectado — o envio está simulado"* em vez de fingir uma
+conexão que não existe.
+
+### Ligar de verdade, quando o número existir
+
+A decisão foi por **Baileys** (via Evolution API), e não pela API oficial. Ela vem com
+quatro condições que o plano trata como obrigatórias — a primeira é a que mais importa:
+
+1. **Chip novo, nunca o número da clínica.** Se o número cair, a clínica perde um robô,
+   não a porta da frente de 30 anos que está na fachada, no Google e no WhatsApp de
+   ~500 pacientes. Banimento em API não oficial é permanente e sem apelação.
+2. **Volume e ritmo humanos**: teto diário e pausa aleatória de 20 a 90 segundos entre
+   envios, já no código. A detecção pesa razão de resposta, distância no grafo de
+   contatos e ritmo robótico — e um lembrete para paciente conhecida, em volume baixo e
+   irregular, é o perfil oposto disso.
+3. **Playbook de queda** (abaixo), com o critério de desistir: **duas quedas em 30 dias
+   e migra-se para a API oficial**, sem nova discussão.
+4. **O provedor é uma interface** (`app/agenda/whatsapp/`) com implementação escolhida
+   por variável de ambiente. Migrar depois de um banimento é trocar um segredo e
+   reiniciar, não reescrever a funcionalidade.
+
+O que muda no `fly.toml` quando a Evolution entrar: `min_machines_running = 1`. Manter
+um socket vivo custa **+US$ 3 a 5/mês** sobre a conta atual, e esse custo existe *por
+causa* da escolha não oficial — entra na conta. Para comparação, a API oficial cobra da
+ordem de US$ 0,008 por mensagem *utility* no Brasil, uns US$ 0,80/mês com 100 consultas,
+e deixaria a máquina continuar dormindo.
+
+### O gatilho do horário
+
+O disparo é um `POST`, não um `GET` — para que um crawler não dispare a agenda inteira:
+
+    POST /tarefas/lembretes
+    X-Tarefa-Token: <o segredo>
+
+Segredo, uma vez:
+
+    fly secrets set TAREFAS_TOKEN="$(python -c 'import secrets;print(secrets.token_hex(32))')"
+
+**Token errado responde 404, nunca 401.** Um 401 confirmaria que o endereço existe.
+Ambiente sem `TAREFAS_TOKEN` também responde 404: não pode haver uma porta que qualquer
+um abre mandando o cabeçalho vazio.
+
+Quem chama, hoje, é um serviço de cron externo — **cron-job.org ou EasyCron, no plano
+gratuito**, uma chamada por dia às 18h. Duas armadilhas documentadas em vez de
+descobertas:
+
+- **GitHub Actions agendado não serve aqui.** O GitHub desliga workflow agendado depois
+  de 60 dias sem commit no repositório, e este é um app de clínica: vai ficar meses
+  parado. Fica como alternativa, nunca como primeira opção.
+- **Cron que morre morre em silêncio.** A contramedida é de graça e já está na tela:
+  `/configuracoes` mostra "último disparo" e vira faixa vermelha depois de 48h. É a
+  única coisa que vai perceber que parou.
+
+O endpoint é idempotente por construção (`UNIQUE (agendamento_id, tipo)`), então pode
+ser chamado dez vezes seguidas — que é exatamente o que um cron mal configurado faz.
+
+### A chave geral, e o que ela faz com a fila
+
+`/configuracoes` tem um LIGADO/DESLIGADO que governa as duas fases: desligada, nem a
+reserva roda, e nada entra em fila.
+
+**Religar não dispara acumulado**, e isso é consequência do desenho, não de um `if`
+extra: a fila é *derivada da agenda*, não guardada. Ao religar, o próximo disparo olha
+as consultas das próximas horas e reserva do zero — o que ficou para trás está sob o
+corte de 6 horas e vira `EXPIRADO`, nunca uma enxurrada de mensagens sobre consulta que
+já aconteceu.
+
+Enquanto está desligada, **a agenda diz que está desligada**, numa linha no topo.
+Silêncio que parece funcionamento é a pior forma de desligar: ela confiaria que a
+paciente foi avisada, e a paciente não foi.
+
+### Playbook de queda
+
+Vale a partir do dia em que houver um provedor de verdade.
+
+1. **Como se percebe:** `/configuracoes` mostra `DESCONECTADO` e os envios começam a
+   falhar; a agenda mostra a faixa de aviso.
+2. **Como se reconecta:** ler o QR code de novo na tela de Configurações.
+3. **Quando desistir:** duas quedas em 30 dias → migrar para a API oficial. A troca é
+   de variável de ambiente, e o resto do sistema não muda.
+4. **Enquanto está fora:** o horário continua sendo marcado normalmente. O lembrete é
+   um acessório da agenda; a agenda não depende dele.
+
+### Antes do primeiro envio real
+
+- Ligar com um **agendamento de teste para o número dela mesma**, e conferir o texto
+  recebido.
+- Só então ligar a chave geral — e quem liga é a dentista, não o deploy.
+- Lembrar que quase ninguém recebe no começo: `paciente.aceita_whatsapp` nasce nulo nos
+  5.559 cadastros migrados, e nulo não recebe. A base de autorização cresce consulta a
+  consulta, pelo botão "perguntar" no cartão da agenda.
+
 ## Requisitos que o provedor precisa cumprir
 
 Dado de saúde é dado pessoal sensível pela LGPD — a categoria de maior proteção.
@@ -192,4 +297,11 @@ teste bem-sucedido aqui:
 - **Migration travada:** `fly ssh console -C "alembic current"` mostra onde parou.
 - **Dado de paciente parece errado:** consulte `revisar_motivo` na tabela `paciente`
   e `lancamento` — a migração marca o que é suspeito em vez de corrigir no chute.
+- **Lembrete não saiu:** `/configuracoes` responde quase sempre. Nesta ordem: a chave
+  geral está ligada? o "último disparo" é de hoje (se não, o cron parou)? a lista de
+  "não vão receber" diz o motivo de cada uma? Um lembrete em `ENVIANDO` significa "não
+  sei se saiu" e **não** é reenviado sozinho — é decisão de uma pessoa.
+- **Lembrete saiu com o texto errado:** o texto que saiu fica congelado em
+  `lembrete.texto`, exatamente como foi enviado. O modelo atual está em
+  `/configuracoes` e pode ter mudado depois.
 - **Nunca rode `DELETE`.** Toda exclusão do sistema é lógica (`excluido_em`).

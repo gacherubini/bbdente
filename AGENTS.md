@@ -39,7 +39,15 @@ Violar qualquer uma delas reprova o trabalho em review, mesmo que os testes pass
 7. **TDD.** Escreva o teste, veja falhar, então implemente. Vale principalmente para a
    lógica pura de `shared/dentes.py` e `migracao/posdente.py`, que é onde mora o risco.
 
-8. **Nomes de domínio em português**: `paciente`, `lancamento`, `regiao`, `escopo`,
+8. **Mensagem para paciente só carrega o que está em
+   `agenda/mensagem.py::ContextoDaMensagem`.** Nome, dia, hora e dados da clínica —
+   nove campos, e a lista é positiva. Nunca tratamento, dente, região, valor,
+   documento nem a `observacao` do horário: dado de saúde é dado sensível, e mensagem
+   de WhatsApp é lida na tela de bloqueio, no ônibus, pela chefe. A barreira é o tipo
+   (`renderizar()` recebe o dataclass, nunca um `dict`) e há dois testes de contrato
+   que falham se alguém acrescentar campo. **Leia o docstring antes de alargar.**
+
+9. **Nomes de domínio em português**: `paciente`, `lancamento`, `regiao`, `escopo`,
    `condicao`. Nomes de biblioteca ficam como são.
 
 ## Onde mora o risco
