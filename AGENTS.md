@@ -243,7 +243,9 @@ Nenhum destes é esquecimento — são escolhas registradas para não virarem su
 - **O "a fazer" da lista de pacientes e o "a receber" do financeiro são números
   diferentes.** O primeiro é tratamento planejado e não feito; o segundo é
   tratamento feito e não pago. Nunca chame os dois de "em aberto".
-- **A sessão do WhatsApp nunca entra no banco.** Ela mora no volume da Evolution.
+- **A sessão do WhatsApp nunca entra no banco do BDDente.** Ela mora dentro da
+  Evolution — na base `evolution`, que é dela e só dela no mesmo cluster, e nos
+  arquivos do volume dela (`infra/evolution/fly.toml`).
   O BDDente guarda da conexão três colunas que já aparecem na tela — estado, número
   e a hora em que foi visto — e há um teste de schema que reprova coluna nova cujo
   nome sugira guardar credencial. Pela mesma razão, **a agenda lê esse estado do

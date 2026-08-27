@@ -814,7 +814,8 @@ Fase 7 — o WhatsApp de verdade
  17. Evolution API como app separado no Fly + provedor evolution.py   [27/08] feita
  18. Conectar/desconectar na tela (QR)                                [27/08] feita
  19. ~~Parar de receber: webhook~~  — CANCELADA em 27/08/2026
- 20. Operação: OPERACAO.md, playbook de queda, primeiro envio real
+ 20. Operação: OPERACAO.md, playbook, fly.toml da Evolution      [27/08] no repo;
+     falta o que só a clínica faz: subir a Evolution, ler o QR, ligar a chave
 ```
 
 **Task 15b, acrescentada em 27/08/2026.** O gatilho virou um relógio dentro do app,
@@ -976,8 +977,9 @@ Detalhada no §12. Requisitos e testes lá.
 - [x] a faixa aparece na agenda quando o estado é desconectado
 
 **Nota da Task 18, 27/08/2026.** O requisito dizia "se ficar no BDDente, cifrada com
-`SECRET_KEY`" — e a resposta foi **não ficar**. A sessão do Baileys vive no volume da
-Evolution, que é quem tem disco para ela, e o BDDente guarda da conexão apenas três
+`SECRET_KEY`" — e a resposta foi **não ficar**. A sessão do Baileys vive dentro da
+Evolution (no volume dela, corrigido depois para *na base dela* — ver a nota da Task
+20), que é quem tem disco para ela, e o BDDente guarda da conexão apenas três
 colunas que já aparecem na tela: `whatsapp_estado`, `whatsapp_numero` e
 `whatsapp_visto_em`. Segredo cifrado em dois lugares continua sendo segredo em dois
 lugares; um a menos é melhor que um cifrado. Há um teste de schema que reprova coluna
@@ -1005,11 +1007,34 @@ que não oferecer canal nenhum. O texto semeado pede que ela ligue, e é assim q
 #### Task 20 — Operação
 
 **Requisitos**
-- [ ] `docs/OPERACAO.md`: o chip novo, o custo do `min_machines_running = 1`, como conferir se rodou, e o **playbook de queda** (§11.4).
-- [ ] `AGENTS.md`: a regra da allowlist de variáveis, junto das invioláveis.
+- [x] `docs/OPERACAO.md`: o chip novo, o custo do `min_machines_running = 1`, como conferir se rodou, e o **playbook de queda** (§11.4).
+- [x] `AGENTS.md`: a regra da allowlist de variáveis, junto das invioláveis.
+- [x] `infra/evolution/fly.toml`: a Evolution como app separado, sem endereço público, imagem presa. *(27/08)*
 - [ ] Primeiro envio real **para o número dela mesma**, com um agendamento de teste, antes de qualquer paciente.
 - [ ] Ligar a chave geral é o último passo, e é ela quem liga.
-- [ ] `ruff` e `pytest` limpos, saída colada.
+- [x] `ruff` e `pytest` limpos, saída colada.
+
+**Duas coisas que a Task 20 descobriu, em 27/08/2026.**
+
+**1. A Evolution v2 guarda a instância no Postgres, não em arquivo.** O §11.3 tinha
+escrito "a sessão mora no volume da Evolution", e isso valia para a v1. A v2 usa
+Prisma, e as rotas que o `evolution.py` chama são as dela (`/message/sendText` com
+`{number, text}`; a v1 tem outro formato). Então a sessão vive numa base `evolution`
+**separada da base do BDDente, no mesmo cluster** — não vale acender um segundo
+Postgres para isto, e o que a regra protege continua protegido: tabela de prontuário e
+sessão de WhatsApp não dividem schema, e o BDDente segue guardando só estado, número e
+hora. Junto veio uma escolha de LGPD: todo `DATABASE_SAVE_DATA_*` de mensagem,
+contato, chat e histórico fica `false` — por ali passa conversa de paciente, e guardá-la
+criaria uma segunda base de dado pessoal fora da auditoria e fora do backup.
+
+**2. A instância não existia, e ninguém tinha reparado.** A Evolution sobe vazia e
+responde 404 até alguém criar uma instância — o `evolution.py` da Task 17 só sabia
+`connect`, `connectionState`, `logout` e `sendText`. Do jeito que estava, o botão
+Conectar mostraria um erro sem conserto pela tela. Agora `parear()` cria a instância
+quando o QR volta 404, e só ele: **criar é consequência de alguém clicar com o celular
+na mão**, nunca de um relógio batendo às 21h contra uma Evolution recriada vazia — uma
+instância sem sessão não enviaria nada de todo jeito, e falhar visível é melhor que
+inventar uma conexão. Há teste de contrato para as duas metades.
 
 ### 11.10 Limites conscientes da Fase 2
 

@@ -344,3 +344,129 @@ def test_desconectado_nao_tenta_enviar(sessao, cenario):
     assert resumo.enviados == 0
     assert resumo.falhados == 1
     assert sessao.query(Lembrete).one().motivo == "desconectado"
+
+
+# --- a instância nasce sozinha ----------------------------------------------
+#
+# A Evolution sobe vazia: até alguém criar uma instância, `/instance/connect`
+# responde 404 para sempre. Sem isto, o botão "Conectar" mostraria um erro que
+# ninguém consegue resolver pela tela — e o passo que falta seria um `curl`
+# escondido num documento, feito uma vez e esquecido no dia em que a Evolution
+# for recriada. O caminho de recuperação tem de caber no mesmo clique.
+
+QR = "iVBORw0KGgoAAAANSUhEUg"
+
+# O que a Evolution responde quando a instância não existe.
+NAO_EXISTE = {"status": 404, "error": "Not Found", "response": {"message": ["Instance"]}}
+
+
+def test_a_instancia_nasce_no_primeiro_conectar():
+    pedidos = []
+
+    def responder(pedido):
+        pedidos.append((pedido.method, str(pedido.url)))
+        if pedido.method == "POST":
+            return httpx.Response(201, json={"qrcode": {"base64": QR}})
+        return httpx.Response(404, json=NAO_EXISTE)
+
+    conexao = _provedor(responder).parear()
+
+    assert conexao.estado is EstadoDaConexao.AGUARDANDO_QR
+    assert conexao.imagem.startswith("data:image/png;base64,")
+    assert ("POST", f"{URL}/instance/create") in pedidos
+
+
+def test_a_instancia_criada_leva_o_nome_configurado():
+    """O nome vem da configuração, e não de uma constante: é ele que amarra o
+    BDDente à instância certa quando houver mais de uma na mesma Evolution."""
+    import json
+
+    corpos = []
+
+    def responder(pedido):
+        if pedido.method == "POST":
+            corpos.append(json.loads(pedido.content))
+            return httpx.Response(201, json={"qrcode": {"base64": QR}})
+        return httpx.Response(404, json=NAO_EXISTE)
+
+    _provedor(responder, instancia="katia").parear()
+
+    assert corpos[0]["instanceName"] == "katia"
+    assert corpos[0]["integration"] == "WHATSAPP-BAILEYS"
+
+
+def test_instancia_que_ja_existe_nao_e_criada_de_novo():
+    """Criar por cima derrubaria a sessão de quem já está conectada."""
+    metodos = []
+
+    def responder(pedido):
+        metodos.append(pedido.method)
+        return httpx.Response(200, json={"base64": QR})
+
+    conexao = _provedor(responder).parear()
+
+    assert conexao.estado is EstadoDaConexao.AGUARDANDO_QR
+    assert "POST" not in metodos
+
+
+def test_criacao_sem_qr_no_corpo_pede_o_qr_de_novo():
+    """Nem toda versão devolve o QR junto da criação. Se não vier, a instância
+    já existe — e pedir de novo é o caminho normal, não um erro."""
+    gets = {"n": 0}
+
+    def responder(pedido):
+        if pedido.method == "POST":
+            return httpx.Response(201, json={"instance": {"instanceName": "bddente"}})
+        gets["n"] += 1
+        if gets["n"] == 1:
+            return httpx.Response(404, json=NAO_EXISTE)
+        return httpx.Response(200, json={"base64": QR})
+
+    conexao = _provedor(responder).parear()
+
+    assert conexao.estado is EstadoDaConexao.AGUARDANDO_QR
+    assert conexao.imagem.endswith(QR)
+    assert gets["n"] == 2
+
+
+def test_falha_ao_criar_a_instancia_vira_erro_na_tela_e_nao_excecao():
+    def responder(pedido):
+        if pedido.method == "POST":
+            return httpx.Response(500, json={"message": "deu ruim"})
+        return httpx.Response(404, json=NAO_EXISTE)
+
+    conexao = _provedor(responder).parear()
+
+    assert conexao.estado is EstadoDaConexao.DESCONECTADO
+    assert conexao.erro
+    assert conexao.imagem is None
+
+
+def test_rede_caida_na_criacao_vira_erro_na_tela():
+    def responder(pedido):
+        if pedido.method == "POST":
+            raise httpx.ConnectError("sem rota", request=pedido)
+        return httpx.Response(404, json=NAO_EXISTE)
+
+    conexao = _provedor(responder).parear()
+
+    assert conexao.estado is EstadoDaConexao.DESCONECTADO
+    assert conexao.erro
+
+
+def test_so_o_conectar_cria_instancia():
+    """Contrato: envio e leitura de estado nunca criam nada. Criar instância é
+    consequência de alguém clicar em Conectar, com o celular na mão — nunca de
+    um relógio batendo às 21h contra uma Evolution que foi recriada vazia."""
+    urls = []
+
+    def responder(pedido):
+        urls.append(str(pedido.url))
+        return httpx.Response(404, json=NAO_EXISTE)
+
+    provedor = _provedor(responder)
+    provedor.estado()
+    provedor.conexao()
+    provedor.enviar(numero="5551999998888", texto="Oi!")
+
+    assert not any("/instance/create" in url for url in urls)

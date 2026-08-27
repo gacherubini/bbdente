@@ -24,7 +24,7 @@ cada `push` na `main`.
 | Migração do histórico clínico e financeiro | **executada** — ver [`docs/MIGRACAO.md`](docs/MIGRACAO.md) |
 | Financeiro: produção, a receber, recebimentos | **no ar** |
 | Agenda: semana, mês, marcar, atender a partir do horário | **no ar** |
-| Lembrete por WhatsApp | **encanamento pronto e desligado** — envio simulado, nada sai para ninguém |
+| Lembrete por WhatsApp | **código pronto, desligado** — falta subir a Evolution, ler o QR e ligar a chave; nada sai para ninguém |
 | Deploy, backup e restauração | **no ar**, restauração testada — ver [`docs/OPERACAO.md`](docs/OPERACAO.md) |
 
 Os 67 testes que aparecem como `skipped` são todos os da migração: eles só rodam com o
@@ -34,9 +34,14 @@ extrato do Dentalis presente, e esse arquivo nunca entra no repositório.
 
 A chave geral (`configuracao_clinica.lembrete_ativo`) nasce `false`, e quem "envia" é um
 provedor de mentira que registra o que enviaria. **É preciso desfazer os dois para uma
-mensagem sair.** O que falta para ligar de verdade é o provedor real (Evolution API) e a
-conexão por QR code — por isso a tela de Configurações ainda diz "nenhum WhatsApp
-conectado" em vez de mostrar um QR.
+mensagem sair.**
+
+O código do envio de verdade está pronto: o provedor da Evolution API, o QR na tela de
+Configurações e a configuração do app dela em [`infra/evolution/fly.toml`](infra/evolution/fly.toml).
+O que falta não é código — é subir a Evolution no Fly, apontar `WHATSAPP_PROVEDOR=evolution`,
+ler o QR com o celular e ligar a chave geral, e o último passo é da dentista. O passo a
+passo está em [`docs/OPERACAO.md`](docs/OPERACAO.md). Enquanto isso não acontece, a tela
+diz "nenhum WhatsApp conectado — o envio está simulado", que é a verdade.
 
 O relógio já roda: `app/agenda/relogio.py` bate de 15 em 15 minutos e avisa **cada
 paciente na hora dela** — 24 horas antes da consulta dela, não numa leva diária. O

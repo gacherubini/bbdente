@@ -1,0 +1,109 @@
+# A Evolution API — o Baileys empacotado — como app SEPARADO no Fly.
+#
+# Separado de proposito: Baileys e Node, e Node nao entra na imagem que carrega o
+# prontuario. O `Dockerfile` do BDDente continua inalterado, `flyctl deploy`
+# continua um comando so, e esta aqui sobe uma vez e e atualizada fora de banda.
+#
+#     fly deploy -c infra/evolution/fly.toml
+#
+# O passo a passo completo (volume, banco, segredos, QR) esta em
+# `docs/OPERACAO.md`, secao "O lembrete de WhatsApp". Este arquivo guarda as
+# escolhas; o documento guarda a ordem.
+
+app = "bddente-whatsapp"
+primary_region = "iad"  # junto do BDDente e do Postgres: a conversa e pela rede privada
+
+[build]
+  # Versao presa a dedo. `latest` aqui e um upgrade de major sem ninguem olhando,
+  # numa peca que guarda uma sessao de WhatsApp: uma quebra de schema derruba a
+  # conexao e obriga a ler o QR de novo, no dia em que ninguem estava mexendo.
+  # As rotas que o `app/agenda/whatsapp/evolution.py` chama sao as da v2
+  # (`/message/sendText` com `{number, text}`) — a v1 tem outro formato, entao
+  # descer de major quebra o envio.
+  image = "atendai/evolution-api:v2.2.3"
+
+[env]
+  SERVER_URL = "http://bddente-whatsapp.internal:8080"
+  SERVER_PORT = "8080"
+  LANGUAGE = "pt-BR"
+
+  # --- a sessao ------------------------------------------------------------
+  # A v2 guarda a instancia no Postgres (Prisma), nao em arquivo. O banco e o
+  # `evolution`, criado no cluster que ja existe — e NAO e o banco do BDDente:
+  # tabela de prontuario e sessao de WhatsApp nao dividem schema. A URI vai por
+  # `fly secrets`, porque carrega senha.
+  DATABASE_ENABLED = "true"
+  DATABASE_PROVIDER = "postgresql"
+  DATABASE_CONNECTION_CLIENT_NAME = "bddente"
+  DATABASE_SAVE_DATA_INSTANCE = "true"
+
+  # --- o que NAO se guarda -------------------------------------------------
+  # Tudo `false` de proposito, e nao por economia de disco: aqui passa conversa
+  # de paciente. Guardar mensagem, contato e historico criaria uma segunda base
+  # de dado pessoal — fora do BDDente, fora da auditoria, fora do backup que a
+  # clinica sabe que tem. O que precisa ficar registrado ja fica: o texto que
+  # saiu esta em `lembrete.texto`, com a allowlist do `agenda/mensagem.py`.
+  DATABASE_SAVE_DATA_NEW_MESSAGE = "false"
+  DATABASE_SAVE_MESSAGE_UPDATE = "false"
+  DATABASE_SAVE_DATA_CONTACTS = "false"
+  DATABASE_SAVE_DATA_CHATS = "false"
+  DATABASE_SAVE_DATA_LABELS = "false"
+  DATABASE_SAVE_DATA_HISTORIC = "false"
+
+  # Ninguem le as respostas (Task 19 cancelada), entao nao ha webhook para onde
+  # mandar o que chega. Desligado e a verdade; ligado seria uma promessa falsa.
+  WEBHOOK_GLOBAL_ENABLED = "false"
+
+  # Redis seria um terceiro app para manter. Cache local basta para uma clinica.
+  CACHE_REDIS_ENABLED = "false"
+  CACHE_LOCAL_ENABLED = "true"
+
+  # O nome que aparece em "Aparelhos conectados" no celular dela. E por ele que
+  # ela reconhece o que desconectar se um dia quiser desconectar.
+  CONFIG_SESSION_PHONE_CLIENT = "BDDente"
+  CONFIG_SESSION_PHONE_NAME = "Chrome"
+
+  # Nunca apagar a instancia sozinha por QR nao lido: o BDDente recria quando
+  # alguem clica em Conectar, mas apagar sozinha e como a sessao some sem
+  # ninguem saber por que.
+  DEL_INSTANCE = "false"
+  QRCODE_LIMIT = "30"
+
+  # Log curto: o que sai daqui pode conter numero de paciente, e log de terceiro
+  # e o lugar mais facil de vazar dado sem perceber.
+  LOG_LEVEL = "ERROR"
+  LOG_BAILEYS = "error"
+  TELEMETRY = "false"
+
+# Sem `[[services.ports]]` — e sem `[http_service]` — a Evolution NAO GANHA
+# ENDERECO PUBLICO. Ela nao tem login: a unica coisa entre a internet e o
+# WhatsApp pessoal dela seria uma chave de cabecalho. Quem fala com ela e o
+# BDDente, pela rede privada `.internal`, que nao passa pela internet.
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+  # A maquina nao dorme: Baileys mantem um socket vivo com o WhatsApp, e maquina
+  # que suspende e sessao que cai — QR de novo a cada cochilo. Custo somado ao do
+  # BDDente acordado: ~US$ 3 a 5/mes, e ele e da escolha por Baileys.
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [[services.tcp_checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "30s"
+
+# O volume guarda o que a v2 nao poe no banco (midia e arquivos de store). A
+# sessao em si vive no Postgres — mas o volume fica porque um app com disco
+# proprio sobrevive a um deploy sem depender de o banco estar de pe no segundo
+# exato em que ele reinicia.
+[mounts]
+  source = "evolution_dados"
+  destination = "/evolution/instances"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  # 512 MB e o suficiente para uma instancia so. Se o log mostrar OOM depois de
+  # algumas semanas de sessao, sobe para 1 GB — e a conta sobe junto.
+  memory = "512mb"

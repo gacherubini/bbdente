@@ -51,6 +51,17 @@ def _numero_de(instancia: dict) -> str | None:
     return numero or None
 
 
+def _qr_ou_erro(imagem: str | None) -> Conexao:
+    """O QR vira data URI; a falta dele vira erro de tela, nunca excecao."""
+    if not imagem:
+        return Conexao(
+            estado=EstadoDaConexao.DESCONECTADO, erro="resposta que não entendi"
+        )
+    if not imagem.startswith("data:"):
+        imagem = f"data:image/png;base64,{imagem}"
+    return Conexao(estado=EstadoDaConexao.AGUARDANDO_QR, imagem=imagem)
+
+
 class ProvedorEvolution:
     """Uma instancia da Evolution, falando por um `httpx.Client` injetado.
 
@@ -118,9 +129,45 @@ class ProvedorEvolution:
 
         Chamado de novo enquanto a tela esta aberta: o QR do WhatsApp expira em
         segundos, entao "renova sozinho" e simplesmente perguntar de novo.
+
+        **E o unico metodo que cria instancia**, e so quando ela nao existe. A
+        Evolution sobe vazia: recem-instalada, ou recriada depois de um acidente
+        com o volume, ela responde 404 a tudo ate alguem criar uma instancia.
+        Se este botao apenas mostrasse o erro, o passo que falta seria um `curl`
+        escondido num documento — feito uma vez, esquecido no dia em que a
+        Evolution voltar vazia, com a dentista olhando uma tela que so diz que
+        deu errado. Aqui, o caminho de recuperacao e o mesmo clique de sempre.
+
+        Criar so no `parear` tambem e uma decisao: quem chega aqui e gente com o
+        celular na mao. O relogio das 21h, se topar com uma Evolution vazia,
+        falha e aparece na tela — nao inventa uma instancia sem sessao para
+        depois nao conseguir enviar do mesmo jeito.
+        """
+        conexao = self._pedir_qr()
+        if conexao is not None:
+            return conexao
+
+        # 404: a instancia nao existe la. Cria e tenta de novo.
+        conexao = self._criar_instancia()
+        if conexao is not None:
+            return conexao
+
+        return self._pedir_qr() or Conexao(
+            estado=EstadoDaConexao.DESCONECTADO,
+            erro="não consegui criar a conexão do WhatsApp",
+        )
+
+    def _pedir_qr(self) -> Conexao | None:
+        """O QR, ou `None` quando a instancia ainda nao existe (404).
+
+        `None` e a unica coisa que o `parear` trata de forma diferente: e a
+        diferenca entre "deu erro" e "ainda nao existe", e so a segunda tem
+        conserto automatico.
         """
         try:
             resposta = self.cliente.get(f"/instance/connect/{self.instancia}")
+            if resposta.status_code == 404:
+                return None
             resposta.raise_for_status()
             corpo = resposta.json()
         except Exception as problema:  # noqa: BLE001 — ver o docstring do modulo
@@ -139,14 +186,39 @@ class ProvedorEvolution:
                 numero=_numero_de(corpo["instance"]),
             )
 
-        imagem = corpo.get("base64")
-        if not imagem:
-            return Conexao(
-                estado=EstadoDaConexao.DESCONECTADO, erro="resposta que não entendi"
+        return _qr_ou_erro(corpo.get("base64"))
+
+    def _criar_instancia(self) -> Conexao | None:
+        """Cria a instancia. Devolve o QR se ele vier junto, `None` se nao vier.
+
+        `None` aqui nao e falha: e "criou, mas sem QR no corpo" — o QR se pede
+        na chamada seguinte. Quem falha de verdade devolve `Conexao` com erro.
+        """
+        registro.info("criando a instancia %s na Evolution", self.instancia)
+        try:
+            resposta = self.cliente.post(
+                "/instance/create",
+                json={
+                    "instanceName": self.instancia,
+                    # Baileys explicito. O padrao da Evolution ja mudou de versao
+                    # para versao, e a escolha entre Baileys e API oficial e a
+                    # decisao mais cara deste modulo — ela nao pode depender de
+                    # qual imagem subiu.
+                    "integration": "WHATSAPP-BAILEYS",
+                    "qrcode": True,
+                },
             )
-        if not imagem.startswith("data:"):
-            imagem = f"data:image/png;base64,{imagem}"
-        return Conexao(estado=EstadoDaConexao.AGUARDANDO_QR, imagem=imagem)
+            resposta.raise_for_status()
+            corpo = resposta.json()
+        except Exception as problema:  # noqa: BLE001 — ver o docstring do modulo
+            registro.warning("nao consegui criar a instancia: %s", _curto(problema))
+            return Conexao(
+                estado=EstadoDaConexao.DESCONECTADO,
+                erro="não consegui criar a conexão do WhatsApp",
+            )
+
+        imagem = (corpo.get("qrcode") or {}).get("base64")
+        return _qr_ou_erro(imagem) if imagem else None
 
     def desconectar(self) -> bool:
         """Derruba a sessao e joga a credencial fora, na Evolution.

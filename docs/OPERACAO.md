@@ -180,19 +180,53 @@ e deixaria a máquina continuar dormindo.
 ### Subir a Evolution, e apontar o BDDente para ela
 
 A Evolution é um **app separado no Fly**, com volume próprio, e o `Dockerfile` do
-BDDente continua inalterado — Baileys é Node, e Node não entra nesta imagem.
+BDDente continua inalterado — Baileys é Node, e Node não entra nesta imagem. A
+configuração dela mora no repositório, em **`infra/evolution/fly.toml`**, com o
+motivo de cada escolha comentado ao lado. São cinco comandos, uma vez na vida:
 
+    # 1. o app e o disco
     fly apps create bddente-whatsapp --org bddente
     fly volumes create evolution_dados --app bddente-whatsapp --region iad --size 1
 
-    fly secrets set --app bddente-whatsapp         AUTHENTICATION_API_KEY="$(python -c 'import secrets;print(secrets.token_hex(32))')"
+    # 2. o banco da Evolution — no cluster que já existe, em base separada.
+    #    A v2 guarda a instância no Postgres (Prisma), não em arquivo.
+    fly postgres attach bddente-db --app bddente-whatsapp \
+        --database-name evolution --variable-name DATABASE_CONNECTION_URI
+
+    # 3. a chave que separa a internet do WhatsApp dela
+    fly secrets set --app bddente-whatsapp \
+        AUTHENTICATION_API_KEY="$(python -c 'import secrets;print(secrets.token_hex(32))')"
+
+    # 4. sobe
+    fly deploy -c infra/evolution/fly.toml
+
+    # 5. confere que ela responde — de dentro do BDDente, que é o único lugar
+    #    de onde ela é alcançável
+    fly ssh console --app bddente -C \
+        "curl -s -o /dev/null -w '%{http_code}' http://bddente-whatsapp.internal:8080"
 
 **Ela não pode ter endereço público.** A Evolution não tem login — a única coisa
 entre a internet e o WhatsApp pessoal da mãe do dono do projeto é aquela chave de
-cabeçalho. No `fly.toml` dela, nada de `[http_service]`: só a rede privada
-`.internal`, que é por onde o BDDente fala. Ela também precisa de
-`min_machines_running = 1` pelo mesmo motivo que o BDDente: Baileys mantém um
-socket vivo, e máquina que dorme é sessão que cai.
+cabeçalho. O `fly.toml` dela não tem `[http_service]` nem `[[services.ports]]`, e é
+por isso: sem porta publicada, o Fly não lhe dá endereço na internet, e quem fala com
+ela é o BDDente pela rede privada `.internal`. Ela também tem
+`min_machines_running = 1` e `auto_stop_machines = "off"` pelo mesmo motivo que o
+BDDente: Baileys mantém um socket vivo, e máquina que dorme é sessão que cai.
+
+**A base `evolution` é separada da base do BDDente, e de propósito.** É o mesmo
+cluster — não vale acender um segundo Postgres para isto —, mas tabela de prontuário e
+sessão de WhatsApp não dividem schema. E a Evolution sobe com todo o `SAVE_DATA` de
+mensagem, contato, chat e histórico em `false`: por ali passa conversa de paciente, e
+guardá-la criaria uma segunda base de dado pessoal, fora do BDDente, fora da auditoria
+e fora do backup que a clínica sabe que tem. O que precisa ficar registrado já fica —
+o texto que saiu está em `lembrete.texto`, sob a allowlist do `agenda/mensagem.py`.
+
+**A versão da imagem está presa** (`atendai/evolution-api:v2.2.3`). `latest` seria um
+upgrade de major sem ninguém olhando, numa peça que guarda a sessão: uma quebra de
+schema derruba a conexão e obriga a ler o QR de novo, no dia em que ninguém estava
+mexendo. Subir de versão é editar aquela linha e rodar o `fly deploy` de novo, com
+alguém olhando a tela de Configurações depois. E não desça para a v1: as rotas que o
+`app/agenda/whatsapp/evolution.py` chama são as da v2.
 
 Com ela de pé, o BDDente aponta para lá — e é **este** o momento em que o envio
 deixa de ser simulado:
@@ -223,10 +257,19 @@ dado de paciente — é lixo que só serve para vazar. O fato fica na auditoria 
 quando); o conteúdo não, porque não existe conteúdo a guardar.
 
 **A sessão do WhatsApp nunca entra no banco do BDDente.** Ela mora dentro da
-Evolution, no volume dela, que é quem tem disco para isso. O que o BDDente guarda da
-conexão são três colunas que já aparecem na tela: estado, número e a hora em que foi
-visto. Há um teste de schema que reprova qualquer coluna nova que pareça guardar
-credencial.
+Evolution — na base `evolution`, que é dela e só dela, e nos arquivos do volume dela.
+O que o BDDente guarda da conexão são três colunas que já aparecem na tela: estado,
+número e a hora em que foi visto. Há um teste de schema que reprova qualquer coluna
+nova que pareça guardar credencial.
+
+**A instância nasce no primeiro Conectar, e não à mão.** A Evolution sobe vazia:
+enquanto ninguém criar uma instância, ela responde 404 a tudo. Quem cria é o próprio
+botão — se o pedido do QR volta 404, o BDDente cria a instância `bddente` e pede o QR
+de novo, no mesmo clique. É o que faz o conserto caber na tela no dia em que a
+Evolution voltar vazia (volume perdido, app recriado), em vez de depender de um `curl`
+escondido num documento. **Criar é só do Conectar:** o relógio das 21h nunca cria nada
+— instância sem sessão não enviaria mensagem nenhuma de todo jeito, e o que ele faz é
+falhar visível.
 
 ### Quem dispara, e quando
 
