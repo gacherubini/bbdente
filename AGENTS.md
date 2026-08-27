@@ -73,6 +73,17 @@ estreita e tem de continuar assim: mesmo paciente, mesmo vencimento, valores
 estritamente decrescentes e cada degrau igual ao valor pago naquela linha. Alargar
 isso apaga dívida de verdade.
 
+**A agenda não é prontuário, e a ponte entre as duas é de mão única.** Um
+`agendamento` sem paciente (`paciente_id` nulo + `nome_avulso`) é a anotação de um
+telefonema — não entra em PDF, não soma dinheiro, não afirma nada sobre a saúde de
+ninguém. Por isso marcar horário nunca exige cadastro. O sentido do acoplamento é
+`agenda.service` → `clinico.service` e `pacientes.service`; a volta
+(`agenda.service.vincular_paciente`) é chamada de `clinico/api.py`, **nunca** de
+`clinico/service.py`, senão é ciclo de import de verdade. E `vincular_paciente()`
+não levanta exceção por decisão, não por descuido: ela roda depois de o prontuário
+estar gravado, e **o prontuário é mais importante que a agenda** — id velho numa aba
+aberta há uma hora não pode fazer um tratamento se perder.
+
 **A regra de espelhamento não pode vazar para o JavaScript.** `odontograma.js` recebe
 `paredes` e `canais_tela` prontos do servidor e não sabe anatomia. Há um teste que
 falha se o JS voltar a calcular isso sozinho.
@@ -133,6 +144,7 @@ O `ruff` deste repo usa `select = ["E", "F", "I", "UP", "B"]`. Consequências:
 | mexer em lançamento | `app/clinico/service.py` (`lancar`, `estado_do_odontograma`) |
 | mexer na busca de paciente | `app/pacientes/service.py` (`buscar`) |
 | mexer no financeiro | `app/financeiro/service.py`, depois `app/static/graficos.js` |
+| mexer na agenda | `app/agenda/service.py` (`grade`, `marcar`), depois `app/templates/agenda_semana.html` |
 | mexer na migração | `migracao/AGENTS.md` |
 | entender uma decisão | o plano em `docs/superpowers/plans/` explica o *porquê* de cada task |
 
