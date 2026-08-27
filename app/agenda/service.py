@@ -12,13 +12,15 @@ Tres delas decidem se a tela vai ser usada ou se ela volta para o papel:
 """
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.agenda.models import DURACAO_PADRAO_MIN, Agendamento, SituacaoAgendamento
 from app.auth.auditoria import registrar
+from app.clinico.service import atendidos_por_dia
+from app.pacientes.service import contatos_de
 from app.pacientes.service import obter as obter_paciente
 from app.pacientes.telefone import formatar
 
@@ -284,3 +286,169 @@ def conflitos_de(sessao: Session, *, agendamento: Agendamento) -> list[Agendamen
         if _minutos(vizinho.inicio) < fim
         and _minutos(vizinho.inicio) + vizinho.duracao_min > inicio
     ]
+
+
+# A faixa de horas da grade sai do dado, com piso e teto: sem horario de
+# funcionamento configuravel no primeiro corte (§8 do plano).
+PRIMEIRA_HORA_PADRAO = 8
+ULTIMA_HORA_PADRAO = 19
+
+
+@dataclass(frozen=True)
+class Periodo:
+    """Um retangulo de dias. A semana e o mes sao o mesmo objeto — e por isso a
+    tela e uma rota so com duas vistas."""
+
+    de: date
+    ate: date
+
+    @property
+    def dias(self) -> list[date]:
+        return [
+            self.de + timedelta(days=n) for n in range((self.ate - self.de).days + 1)
+        ]
+
+
+def semana_de(dia: date) -> Periodo:
+    """Segunda a domingo.
+
+    Domingo entra mesmo com o consultorio fechado: e mais barato mostrar uma
+    coluna vazia do que explicar por que o horario marcado num domingo sumiu.
+    """
+    segunda = dia - timedelta(days=dia.weekday())
+    return Periodo(de=segunda, ate=segunda + timedelta(days=6))
+
+
+def mes_de(dia: date) -> Periodo:
+    """A grade retangular do mes: da segunda da semana do dia 1 ao domingo da
+    semana do ultimo dia. Sem isso a primeira linha teria buracos e fevereiro
+    mudaria de formato."""
+    primeiro = dia.replace(day=1)
+    seguinte = (primeiro + timedelta(days=32)).replace(day=1)
+    ultimo = seguinte - timedelta(days=1)
+    return Periodo(de=semana_de(primeiro).de, ate=semana_de(ultimo).ate)
+
+
+@dataclass(frozen=True)
+class Cartao:
+    """Um horario, pronto para a tela. Sem objeto do banco e sem consulta nova."""
+
+    id: int
+    paciente_id: int | None
+    nome: str
+    telefone: str | None
+    dia: date
+    inicio: time
+    fim: time
+    duracao_min: int
+    situacao: str
+    observacao: str | None
+    atendida: bool
+
+    @property
+    def desmarcado(self) -> bool:
+        return self.situacao == SituacaoAgendamento.DESMARCADO.value
+
+    @property
+    def ocupa_horario(self) -> bool:
+        return self.situacao in {s.value for s in SITUACOES_VIVAS}
+
+
+@dataclass(frozen=True)
+class Grade:
+    """O periodo inteiro montado. A tela nao consulta nada — so le daqui."""
+
+    periodo: Periodo
+    cartoes: dict[date, list[Cartao]]
+    sem_hora: dict[date, list[Contato]]
+    primeira_hora: int
+    ultima_hora: int
+
+    def do_dia(self, dia: date) -> list[Cartao]:
+        return self.cartoes.get(dia, [])
+
+    def sem_hora_no_dia(self, dia: date) -> list[Contato]:
+        """Quem foi atendido no dia sem ter horario marcado.
+
+        Vem do prontuario, e e por isso que nao tem hora: `lancamento` guarda
+        data, nunca hora (§8 do plano).
+        """
+        return self.sem_hora.get(dia, [])
+
+    def quantos_no_dia(self, dia: date) -> int:
+        """Quantos ocupam o dia. O desmarcado sai da contagem sem sair da tela."""
+        return sum(1 for cartao in self.do_dia(dia) if cartao.ocupa_horario)
+
+
+def grade(sessao: Session, *, clinica_id: int, periodo: Periodo) -> Grade:
+    """Monta a semana ou o mes em tres consultas, sempre.
+
+    Fica aqui, e nao na rota, porque semana e mes montam a mesma coisa — na rota
+    seria a mesma montagem escrita duas vezes, e a segunda envelheceria.
+
+    As tres: os horarios do periodo, quem foi atendido em cada dia (do prontuario,
+    pela service do `clinico`), e nome/telefone de todo mundo que apareceu nas
+    duas primeiras — de uma vez, nunca por cartao.
+    """
+    agendamentos = sessao.scalars(
+        select(Agendamento)
+        .where(
+            Agendamento.clinica_id == clinica_id,
+            Agendamento.dia.between(periodo.de, periodo.ate),
+            Agendamento.excluido_em.is_(None),
+        )
+        .order_by(Agendamento.dia, Agendamento.inicio, Agendamento.id)
+    ).all()
+
+    atendidos = atendidos_por_dia(
+        sessao, clinica_id=clinica_id, de=periodo.de, ate=periodo.ate
+    )
+
+    interessados = {a.paciente_id for a in agendamentos if a.paciente_id is not None}
+    for do_dia in atendidos.values():
+        interessados |= do_dia
+    contatos = contatos_de(sessao, clinica_id=clinica_id, paciente_ids=interessados)
+
+    cartoes: dict[date, list[Cartao]] = {}
+    for agendamento in agendamentos:
+        nome, telefone = contatos.get(
+            agendamento.paciente_id, (agendamento.nome_avulso or "", agendamento.telefone_avulso)
+        )
+        cartoes.setdefault(agendamento.dia, []).append(
+            Cartao(
+                id=agendamento.id,
+                paciente_id=agendamento.paciente_id,
+                nome=nome,
+                telefone=telefone,
+                dia=agendamento.dia,
+                inicio=agendamento.inicio,
+                fim=agendamento.fim,
+                duracao_min=agendamento.duracao_min,
+                situacao=agendamento.situacao.value,
+                observacao=agendamento.observacao,
+                atendida=agendamento.paciente_id in atendidos.get(agendamento.dia, ()),
+            )
+        )
+
+    sem_hora: dict[date, list[Contato]] = {}
+    for dia, do_dia in atendidos.items():
+        com_horario = {c.paciente_id for c in cartoes.get(dia, [])}
+        faltantes = [
+            Contato(nome=contatos[pid][0], telefone=contatos[pid][1], paciente_id=pid)
+            for pid in sorted(do_dia - com_horario)
+            if pid in contatos
+        ]
+        if faltantes:
+            sem_hora[dia] = faltantes
+
+    return Grade(
+        periodo=periodo,
+        cartoes=cartoes,
+        sem_hora=sem_hora,
+        primeira_hora=min(
+            [PRIMEIRA_HORA_PADRAO] + [a.inicio.hour for a in agendamentos]
+        ),
+        ultima_hora=max(
+            [ULTIMA_HORA_PADRAO] + [a.fim.hour + (1 if a.fim.minute else 0) for a in agendamentos]
+        ),
+    )

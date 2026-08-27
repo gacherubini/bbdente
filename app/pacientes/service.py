@@ -644,3 +644,34 @@ def nomes_de(
             )
         ).all()
     }
+
+
+def contatos_de(
+    sessao: Session, *, clinica_id: int, paciente_ids: Iterable[int]
+) -> dict[int, tuple[str, str | None]]:
+    """Nome e telefone principal de cada paciente, numa consulta so.
+
+    E o que a agenda precisa saber de quem vem — nada de prontuario. Uma consulta
+    para a lista inteira porque a grade do mes tem dezenas de cartoes, e uma ida
+    ao banco por cartao trava a tela justamente no mes cheio.
+    """
+    ids = list(paciente_ids)
+    if not ids:
+        return {}
+    principal = (
+        select(PacienteTelefone.paciente_id, PacienteTelefone.numero)
+        .where(
+            PacienteTelefone.paciente_id.in_(ids),
+            PacienteTelefone.principal.is_(True),
+            PacienteTelefone.excluido_em.is_(None),
+        )
+        .subquery()
+    )
+    return {
+        paciente_id: (nome, telefone)
+        for paciente_id, nome, telefone in sessao.execute(
+            select(Paciente.id, Paciente.nome, principal.c.numero)
+            .outerjoin(principal, principal.c.paciente_id == Paciente.id)
+            .where(Paciente.id.in_(ids), Paciente.clinica_id == clinica_id)
+        ).all()
+    }

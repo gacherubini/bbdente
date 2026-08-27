@@ -596,6 +596,37 @@ def atendimentos_do_dia(sessao: Session, *, clinica_id: int, dia: date) -> list[
     )
 
 
+def atendidos_por_dia(
+    sessao: Session, *, clinica_id: int, de: date, ate: date
+) -> dict[date, set[int]]:
+    """Quem tem lancamento realizado em cada dia do periodo, so o `paciente_id`.
+
+    Existe para a agenda: a tela precisa saber quem foi atendido sem ter horario
+    marcado (o rodape "sem hora marcada") e quem ja foi atendido hoje. Uma
+    consulta para o periodo inteiro — a agenda desenha ate 42 dias de uma vez, e
+    uma consulta por dia seria 42 idas ao banco para pintar uma bolinha.
+
+    Devolve id, nunca nome: buscar nome aqui seria JOIN em tabela de outro
+    modulo. Quem monta a tela resolve por `pacientes.service.contatos_de()`.
+    """
+    linhas = sessao.execute(
+        select(Lancamento.data_realizada, Odontograma.paciente_id)
+        .join(Odontograma, Lancamento.odontograma_id == Odontograma.id)
+        .where(
+            Lancamento.clinica_id == clinica_id,
+            Lancamento.status == StatusLancamento.REALIZADO,
+            Lancamento.data_realizada.between(de, ate),
+            Lancamento.excluido_em.is_(None),
+        )
+        .distinct()
+    ).all()
+
+    por_dia: dict[date, set[int]] = {}
+    for dia, paciente_id in linhas:
+        por_dia.setdefault(dia, set()).add(paciente_id)
+    return por_dia
+
+
 def planejados_do_dia(sessao: Session, *, clinica_id: int, dia: date) -> list[dict]:
     """Quem tem tratamento marcado para o dia, e qual.
 
