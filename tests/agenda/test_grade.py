@@ -353,15 +353,13 @@ def test_o_fato_vence_a_anotacao_quando_ela_marcou_falta_por_engano(sessao, cena
     assert cartao.situacao == "FALTOU"
 
 
-def test_a_grade_tem_uma_faixa_a_cada_meia_hora(sessao, cenario):
-    """Consulta de 30 minutos e a mais comum: com linha de uma hora, marcar as
-    09:30 exigia abrir o formulario e corrigir a hora na mao."""
+def test_a_grade_tem_uma_linha_por_hora(sessao, cenario):
+    """A linha e de uma hora; quem divide a hora em duas sao as secoes de dentro
+    da celula. Dobrar as linhas dobrava a rolagem para mostrar o mesmo dia."""
     clinica, _, _ = cenario
     grade = service.grade(sessao, clinica_id=clinica.id, periodo=service.semana_de(QUARTA))
 
-    assert (8, 0) in grade.faixas
-    assert (8, 30) in grade.faixas
-    assert len(grade.faixas) == (grade.ultima_hora - grade.primeira_hora + 1) * 2
+    assert grade.horas == list(range(8, 20))
 
 
 def test_cada_cartao_cai_na_sua_meia_hora(sessao, cenario):

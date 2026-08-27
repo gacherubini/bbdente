@@ -368,18 +368,15 @@ class Grade:
         return self.cartoes.get(dia, [])
 
     @property
-    def faixas(self) -> list[tuple[int, int]]:
-        """As linhas da grade, de meia em meia hora.
+    def horas(self) -> list[int]:
+        """As linhas da grade. Uma por hora — a leitura da semana e por hora, e
+        dobrar as linhas dobrava a rolagem para mostrar o mesmo dia.
 
-        Consulta de 30 minutos e a mais comum do consultorio: com linha de uma
-        hora, marcar as 09:30 exigia abrir o formulario e corrigir a hora na mao,
-        que e exatamente o clique a mais que faz a agenda voltar para o papel.
+        Cada linha tem DUAS secoes por dentro (§`no_slot`): a de cima marca em
+        ponto, a de baixo na meia. Consulta de 30 minutos e a mais comum, e sem
+        as duas secoes marcar as 09:30 exigia corrigir a hora na mao.
         """
-        return [
-            (hora, minuto)
-            for hora in range(self.primeira_hora, self.ultima_hora + 1)
-            for minuto in (0, 30)
-        ]
+        return list(range(self.primeira_hora, self.ultima_hora + 1))
 
     def no_slot(self, dia: date, hora: int, minuto: int) -> list[Cartao]:
         """Os cartoes daquela meia hora.

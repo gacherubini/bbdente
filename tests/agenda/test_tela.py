@@ -275,3 +275,28 @@ def test_a_tela_avisa_do_conflito_sem_ter_bloqueado(cliente, sessao, cenario):
     assert resposta.status_code == 303
     assert sessao.query(Agendamento).count() == 2
     assert "conflito" in resposta.headers["location"]
+
+
+def test_cada_hora_oferece_os_dois_comecos(cliente):
+    """A linha e de uma hora, mas com duas seções por dentro: às 19 dá para
+    clicar na de cima (19:00) ou na de baixo (19:30)."""
+    pagina = cliente.get(f"/agenda?dia={QUARTA.isoformat()}").text
+
+    assert f"/agenda/novo?dia={QUARTA.isoformat()}&hora=19:00" in pagina
+    assert f"/agenda/novo?dia={QUARTA.isoformat()}&hora=19:30" in pagina
+
+
+def test_o_cartao_da_meia_hora_fica_na_secao_de_baixo(cliente, sessao, cenario):
+    service.marcar(
+        sessao,
+        clinica_id=cenario["clinica"].id,
+        usuario_id=cenario["usuario"].id,
+        nome_avulso="Meia hora",
+        dia=QUARTA,
+        inicio=time(9, 30),
+    )
+
+    pagina = cliente.get(f"/agenda?dia={QUARTA.isoformat()}").text
+    secao_da_meia = pagina.split('agenda-secao agenda-secao-meia')[1:]
+
+    assert any("Meia hora" in trecho.split("</div>")[0] for trecho in secao_da_meia)

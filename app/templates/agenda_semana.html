@@ -47,22 +47,27 @@
     </tr>
   </thead>
   <tbody>
-    {# Uma linha por meia hora: a consulta de 30 minutos e a mais comum, e cada
-       hora tem de oferecer os dois comecos. #}
-    {% for hora, minuto in grade.faixas %}
-    {% set relogio = '%02d:%02d' | format(hora, minuto) %}
-    <tr class="{{ 'agenda-meia' if minuto }}">
-      <th class="agenda-hora">{{ relogio }}</th>
+    {# Uma linha por hora, com DUAS secoes por dentro: a de cima marca em ponto,
+       a de baixo na meia. Consulta de 30 minutos e a mais comum, e sem a segunda
+       secao marcar as 09:30 exigia abrir o formulario e corrigir a hora na mao. #}
+    {% for hora in grade.horas %}
+    <tr>
+      <th class="agenda-hora">{{ '%02d:00' | format(hora) }}</th>
       {% for d in periodo.dias %}
       <td class="{{ 'agenda-hoje' if d == hoje }}">
-        {% for c in grade.no_slot(d, hora, minuto) %}
-        {% include "_agenda_cartao.html" %}
+        {% for minuto in [0, 30] %}
+        {% set relogio = '%02d:%02d' | format(hora, minuto) %}
+        <div class="agenda-secao{{ ' agenda-secao-meia' if minuto }}">
+          {% for c in grade.no_slot(d, hora, minuto) %}
+          {% include "_agenda_cartao.html" %}
+          {% endfor %}
+          {# A secao vazia e o botao: a pergunta do telefone e "onde eu encaixo
+             ela?", e a resposta tem de ser clicavel de onde ela esta olhando. #}
+          <a class="agenda-vago"
+             href="/agenda/novo?dia={{ d.isoformat() }}&hora={{ relogio }}"
+             title="marcar {{ relogio }}">+</a>
+        </div>
         {% endfor %}
-        {# A celula vazia e o botao: a pergunta do telefone e "onde eu encaixo
-           ela?", e a resposta tem de ser clicavel de onde ela esta olhando. #}
-        <a class="agenda-vago"
-           href="/agenda/novo?dia={{ d.isoformat() }}&hora={{ relogio }}"
-           title="marcar {{ relogio }}">+</a>
       </td>
       {% endfor %}
     </tr>

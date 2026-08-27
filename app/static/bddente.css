@@ -1248,15 +1248,14 @@ tbody tr.grupo-dia:hover td { background: var(--roxo-cl); }
   text-align: center;
 }
 .agenda-semana thead th a { color: inherit; text-decoration: none; }
-.agenda-semana td, .agenda-mes td { min-width: 118px; height: 54px; }
-/* A linha da meia hora e a mesma faixa da hora cheia, so que sem repetir o
-   peso: a borda fraca deixa a hora ler como um bloco de duas metades, e nao
-   como duas horas diferentes. */
-.agenda-semana tr.agenda-meia > td, .agenda-semana tr.agenda-meia > th {
-  border-top-style: dashed;
-  border-top-color: #F1F5F9;
-}
-.agenda-meia .agenda-hora { font-weight: 400; color: #94A3B8; }
+.agenda-semana td, .agenda-mes td { min-width: 118px; height: 46px; }
+/* As duas metades da hora. A de baixo se separa por um tracejado fraco: a hora
+   continua sendo UM bloco na leitura, e a divisao so aparece para quem for
+   clicar. Cada uma tem altura minima propria para continuar clicavel quando a
+   outra esta cheia de cartao. */
+.agenda-secao { min-height: 19px; position: relative; }
+.agenda-secao-meia { border-top: 1px dashed #F1F5F9; margin-top: 2px; padding-top: 2px; }
+td:hover > .agenda-secao-meia { border-top-color: var(--roxo-brd); }
 
 /* A coluna das horas nao rola junto: e a legenda de todas as celulas, e sem
    ela a grade rolada nao diz mais que horas sao. */
