@@ -35,9 +35,16 @@
         enviar();
         return;
       }
+      /* Clicar em outra face DO MESMO dente soma; clicar em outro dente
+         recomeca. A selecao pertence a um dente — levar as faces do 36 para o
+         37 lancaria tratamento em face que ninguem mandou. */
+      var mesmoDente = alvo.dente !== null && alvo.dente === clique.dente;
       alvo = clique;
       mostrarAlvo();
-      if (elEscopo() === "REGIOES") marcarSomente([clique.regiao]);
+      if (elEscopo() === "REGIOES") {
+        if (mesmoDente) alternarRegiao(clique.regiao);
+        else marcarSomente([clique.regiao]);
+      }
       atualizarBotoes();
     }
   });
@@ -51,6 +58,14 @@
     return Array.prototype.slice
       .call(document.querySelectorAll('input[name="regiao"]:checked'))
       .map(function (c) { return c.value; });
+  }
+
+  /* Liga ou desliga uma face sem mexer nas outras. Clicar de novo na mesma
+     face desmarca — desfazer tem de ser o mesmo gesto que fazer. */
+  function alternarRegiao(regiao) {
+    document.querySelectorAll('input[name="regiao"]').forEach(function (caixa) {
+      if (caixa.value === regiao) caixa.checked = !caixa.checked;
+    });
   }
 
   function marcarSomente(valores) {
@@ -162,7 +177,12 @@
         'input[name="escopo"][value="' + procedimento.escopo_sugerido + '"]'
       );
       if (radio) radio.checked = true;
-      if (procedimento.escopo_sugerido === "REGIOES") {
+      /* A sugestao do tratamento so vale enquanto ela nao montou a selecao.
+         Marcou duas ou mais faces a mao e SO ENTAO escolheu o tratamento? O que
+         ela montou vence — apagar isso seria perder o trabalho dela em silencio. */
+      if (procedimento.escopo_sugerido === "REGIOES" && regioesMarcadas().length > 1) {
+        // nao mexe: a selecao e dela
+      } else if (procedimento.escopo_sugerido === "REGIOES") {
         var sugeridas = procedimento.regioes_sugeridas.slice();
         // a regiao que ela acabou de clicar tem prioridade sobre a sugestao
         if (alvo.regiao && sugeridas.indexOf(alvo.regiao) === -1) sugeridas = [alvo.regiao];

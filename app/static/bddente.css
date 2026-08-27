@@ -1397,3 +1397,13 @@ td:hover > .agenda-vago { color: var(--roxo-brd); background: var(--roxo-cl); }
    Escopo proprio: `.linha-dupla` e usada em outras telas, e mexer nela aqui
    seria a terceira colisao de nome deste arquivo. */
 .agenda-linha input { width: 100%; box-sizing: border-box; }
+
+/* Dica que fica sempre a vista, dentro do quadro das regioes. Nome proprio para
+   nao colidir com `.painel-dica`, que aparece e some conforme o estado. */
+.painel-dica-fixa {
+  grid-column: 1 / -1;
+  margin: 0 0 6px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--texto-fraco);
+}

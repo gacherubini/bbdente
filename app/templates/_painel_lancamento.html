@@ -31,6 +31,13 @@
   </div>
 
   <fieldset class="regioes" id="painel-regioes">
+    {# Gesto que ninguem descobre e gesto que nao existe: as caixas sempre
+       aceitaram varias faces, mas o clique no desenho trocava a selecao e ela
+       nunca chegava a marcar duas. #}
+    <p class="painel-dica-fixa">
+      Clique em <b>mais de uma face</b> do mesmo dente para somar — o valor
+      multiplica. Clicar de novo desmarca.
+    </p>
     <legend>Coroa</legend>
     <label><input type="checkbox" name="regiao" value="MESIAL"> Mesial</label>
     <label><input type="checkbox" name="regiao" value="DISTAL"> Distal</label>
