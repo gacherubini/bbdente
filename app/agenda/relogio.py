@@ -22,7 +22,7 @@ from datetime import datetime
 
 from app.agenda.lembretes import Resumo, rodar
 from app.agenda.tarefas import provedor_atual
-from app.config import config
+from app.auth.service import ids_de_clinica
 from app.shared.db import Sessao
 
 # 15 minutos: a consulta das 21h e avisada entre 21h00 e 21h15 da vespera. Quinze
@@ -33,21 +33,34 @@ INTERVALO_S = 15 * 60
 registro = logging.getLogger(__name__)
 
 
-def bater() -> Resumo:
-    """Uma batida, com sessao propria.
+def bater() -> list[Resumo]:
+    """Uma batida, com sessao propria — uma passada por clinica que existe.
 
     `datetime.now()` sem fuso e o certo aqui, e e o unico lugar do modulo que le
     o relogio: o container roda com `TZ=America/Sao_Paulo`, entao isto e a hora
     da parede do consultorio (§4 do plano). Quem le hora de banco converte com
     `lembretes.parede()`.
+
+    **Quais clinicas sao, quem responde e o banco.** Ate 28/08/2026 este modulo
+    supunha `clinica_id = 1`; a clinica de producao tinha outro id, e cada uma
+    das 96 batidas do dia morria em `ForeignKeyViolation` sem olhar um horario.
+    Nenhum lembrete saiu, por dias, e a tela nao tinha como saber. Um id de
+    configuracao e um palpite sobre chave primaria — e o palpite que ACERTA um
+    id existente e pior, porque ai o relogio roda calado para a clinica errada.
+
+    A mesma hora para todas: uma batida e um instante, e duas clinicas nao podem
+    discordar sobre que horas sao dentro dela.
     """
+    agora = datetime.now()
+    provedor = provedor_atual()
     with Sessao() as sessao:
-        return rodar(
-            sessao,
-            clinica_id=config.clinica_id_padrao,
-            agora=datetime.now(),
-            provedor=provedor_atual(),
-        )
+        clinicas = ids_de_clinica(sessao)
+        if not clinicas:
+            registro.warning("nenhuma clinica no banco; a batida nao tem para quem ir")
+        return [
+            rodar(sessao, clinica_id=clinica_id, agora=agora, provedor=provedor)
+            for clinica_id in clinicas
+        ]
 
 
 def bater_sem_derrubar(batida: Callable[[], Resumo] = bater) -> None:

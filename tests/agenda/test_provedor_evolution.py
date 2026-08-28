@@ -47,6 +47,15 @@ def _ok(corpo, status=200):
     return lambda pedido: httpx.Response(status, json=corpo)
 
 
+DONO = "5551999998888:12@s.whatsapp.net"
+
+
+def _linha(**campos):
+    """Uma linha do `fetchInstances`, como a Evolution devolve: uma lista."""
+    base = {"name": "bddente", "connectionStatus": "open", "ownerJid": DONO}
+    return _ok([{**base, **campos}])
+
+
 # --- a escolha do provedor ---------------------------------------------------
 
 def test_o_padrao_e_o_de_mentira():
@@ -95,7 +104,9 @@ def test_evolution_sem_chave_nao_sobe(monkeypatch):
     ],
 )
 def test_o_estado_traduz_o_vocabulario_da_evolution(estado_evolution, esperado):
-    provedor = _provedor(_ok({"instance": {"state": estado_evolution}}))
+    """Com dono no lugar — sem ele, `open` não é conexão, e isso tem teste próprio
+    lá embaixo."""
+    provedor = _provedor(_linha(connectionStatus=estado_evolution))
     assert provedor.estado() is esperado
 
 
@@ -116,10 +127,10 @@ def test_o_estado_pergunta_pela_instancia_certa():
 
     def anotar(pedido):
         vistos.append(str(pedido.url))
-        return httpx.Response(200, json={"instance": {"state": "open"}})
+        return httpx.Response(200, json=[{"connectionStatus": "open", "ownerJid": DONO}])
 
     _provedor(anotar, instancia="katia").estado()
-    assert vistos == [f"{URL}/instance/connectionState/katia"]
+    assert vistos == [f"{URL}/instance/fetchInstances?instanceName=katia"]
 
 
 # --- envio -------------------------------------------------------------------
@@ -290,8 +301,8 @@ def test_a_rede_caindo_deixa_falhou_e_nao_derruba_o_disparo(sessao, cenario):
     # "desconectado": aqui a mensagem PODE ter chegado, e é por isso que fica
     # FALHOU e ninguém reenvia sozinho.
     def cai_no_envio(pedido):
-        if "connectionState" in str(pedido.url):
-            return httpx.Response(200, json={"instance": {"state": "open"}})
+        if "fetchInstances" in str(pedido.url):
+            return httpx.Response(200, json=[{"connectionStatus": "open", "ownerJid": DONO}])
         raise httpx.ConnectError("sem rota", request=pedido)
 
     resumo = _rodar(sessao, cenario, _provedor(cai_no_envio))
@@ -311,8 +322,8 @@ def test_uma_falha_de_rede_no_meio_nao_impede_as_seguintes(sessao, cenario):
     chamadas = {"n": 0}
 
     def falha_na_segunda(pedido):
-        if "connectionState" in str(pedido.url):
-            return httpx.Response(200, json={"instance": {"state": "open"}})
+        if "fetchInstances" in str(pedido.url):
+            return httpx.Response(200, json=[{"connectionStatus": "open", "ownerJid": DONO}])
         chamadas["n"] += 1
         if chamadas["n"] == 2:
             raise httpx.ConnectError("sem rota", request=pedido)
@@ -333,8 +344,8 @@ def test_desconectado_nao_tenta_enviar(sessao, cenario):
     envios = {"n": 0}
 
     def responder(pedido):
-        if "connectionState" in str(pedido.url):
-            return httpx.Response(200, json={"instance": {"state": "close"}})
+        if "fetchInstances" in str(pedido.url):
+            return httpx.Response(200, json=[{"connectionStatus": "close", "ownerJid": None}])
         envios["n"] += 1
         return httpx.Response(201, json={"key": {"id": "x"}})
 
@@ -470,3 +481,136 @@ def test_so_o_conectar_cria_instancia():
     provedor.enviar(numero="5551999998888", texto="Oi!")
 
     assert not any("/instance/create" in url for url in urls)
+
+
+# --- a conexão: só é conexão quando tem dono ---------------------------------
+#
+# O `connectionState` da Evolution lê uma variável em MEMÓRIA, e essa variável
+# mente. Em 28/08/2026 a instância desta clínica ficou presa em "open" com o
+# socket morto: o Baileys emitiu `connection: 'open'` sem `client.user`, a
+# Evolution gravou `stateConnection = {state: 'open'}` e só ENTÃO estourou em
+# `this.client.user.id` — antes de persistir qualquer coisa. A tela passou dois
+# dias dizendo "conectado" para uma sessão que não existia.
+#
+# Por isso a conexão passou a ser lida do `fetchInstances`, que vem do Postgres
+# da Evolution, e por isso ela exige `ownerJid`: o `connectionStatus` do schema
+# dela nasce `open` por padrão (`@default(open)`), então "open" sozinho não prova
+# nada. **Sessão sem dono não é sessão** — ninguém leu o QR.
+
+def test_open_sem_dono_nao_e_conectado():
+    """O caso exato do 28/08: `open` gravado antes do crash, sem dono nenhum."""
+    conexao = _provedor(_linha(ownerJid=None)).conexao()
+    assert conexao.estado is not EstadoDaConexao.CONECTADO
+    assert conexao.estado is EstadoDaConexao.AGUARDANDO_QR
+    assert conexao.numero is None
+
+
+def test_o_estado_tambem_exige_dono():
+    """É o `estado()` que libera o disparo. Se ele acreditar no `open` vazio, o
+    relógio das 21h tenta mandar para sete pacientes por um socket morto."""
+    assert _provedor(_linha(ownerJid=None)).estado() is not EstadoDaConexao.CONECTADO
+
+
+def test_open_com_dono_e_conectado_e_traz_o_numero():
+    conexao = _provedor(_linha()).conexao()
+    assert conexao.estado is EstadoDaConexao.CONECTADO
+    # O sufixo do aparelho vinculado (`:12`) não interessa a ninguém na tela.
+    assert conexao.numero == "5551999998888"
+
+
+def test_a_conexao_le_do_banco_da_evolution_e_nao_da_memoria():
+    vistos = []
+
+    def anotar(pedido):
+        vistos.append(str(pedido.url))
+        return httpx.Response(200, json=[{"connectionStatus": "open", "ownerJid": DONO}])
+
+    _provedor(anotar, instancia="katia").conexao()
+    assert vistos == [f"{URL}/instance/fetchInstances?instanceName=katia"]
+
+
+def test_instancia_que_nao_existe_e_desconectado():
+    """A Evolution recriada vazia responde 404. Isso é 'não dá para enviar',
+    não uma exceção — e o conserto é o mesmo clique de Conectar de sempre."""
+    conexao = _provedor(_ok({"status": 404, "error": "Not Found"}, status=404)).conexao()
+    assert conexao.estado is EstadoDaConexao.DESCONECTADO
+
+
+def test_lista_vazia_e_desconectado():
+    assert _provedor(_ok([])).conexao().estado is EstadoDaConexao.DESCONECTADO
+
+
+def test_conectar_nao_acredita_no_ja_conectado_sem_dono():
+    """A mesma mentira, na outra porta — e foi por esta que a dentista passou.
+
+    `/instance/connect` responde "já está conectada" lendo a MESMA variável em
+    memória do `connectionState`. Com ela presa em `open`, clicar em Conectar
+    devolvia "conectado" e QR nenhum: não havia como sair, porque o único botão
+    que consertaria já achava que estava tudo bem.
+
+    Então `parear` confere no banco da Evolution antes de acreditar. Sem dono,
+    derruba a sessão fantasma e pede o QR de novo — o mesmo conserto automático
+    que ele já fazia para a instância que não existe. Quem chega aqui é gente com
+    o celular na mão, e o caminho de recuperação tem de ser o clique de sempre.
+    """
+    urls = []
+
+    def responder(pedido):
+        url = str(pedido.url)
+        urls.append(f"{pedido.method} {url}")
+        if "fetchInstances" in url:
+            return httpx.Response(200, json=[{"connectionStatus": "open", "ownerJid": None}])
+        if "/instance/logout/" in url:
+            return httpx.Response(200, json={"status": "SUCCESS"})
+        # `/instance/connect`, mentindo que já está conectada.
+        if not any("/instance/logout/" in visto for visto in urls):
+            return httpx.Response(200, json={"instance": {"state": "open"}})
+        return httpx.Response(200, json={"base64": QR})
+
+    conexao = _provedor(responder).parear()
+
+    assert conexao.estado is EstadoDaConexao.AGUARDANDO_QR
+    assert conexao.imagem.endswith(QR)
+    assert any("DELETE" in visto and "/instance/logout/" in visto for visto in urls)
+
+
+def test_conectar_respeita_o_ja_conectado_de_verdade():
+    """A trava não pode virar um logout gratuito: com dono no banco, a sessão é
+    real e derrubá-la obrigaria a dentista a ler o QR à toa."""
+    urls = []
+
+    def responder(pedido):
+        urls.append(str(pedido.url))
+        if "fetchInstances" in str(pedido.url):
+            return httpx.Response(200, json=[{"connectionStatus": "open", "ownerJid": DONO}])
+        return httpx.Response(200, json={"instance": {"state": "open"}})
+
+    conexao = _provedor(responder).parear()
+
+    assert conexao.estado is EstadoDaConexao.CONECTADO
+    assert conexao.numero == "5551999998888"
+    assert not any("logout" in url for url in urls)
+
+
+def test_conectar_nao_derruba_sessao_real_no_meio_da_reconexao():
+    """A trava tem um gatilho estreito de propósito: **dono nenhum no banco**.
+
+    Derrubar é apagar credencial. A Evolution põe `open` na memória e só grava o
+    banco depois de ir buscar a foto do perfil — nessa janela o banco ainda diz
+    `connecting`, mas o `ownerJid` de um pareamento anterior está lá, e a sessão
+    é real. Derrubar ali custaria à dentista um QR novo por nada.
+    """
+    urls = []
+
+    def responder(pedido):
+        urls.append(str(pedido.url))
+        if "fetchInstances" in str(pedido.url):
+            return httpx.Response(
+                200, json=[{"connectionStatus": "connecting", "ownerJid": DONO}]
+            )
+        return httpx.Response(200, json={"instance": {"state": "open"}})
+
+    conexao = _provedor(responder).parear()
+
+    assert not any("logout" in url for url in urls)
+    assert conexao.numero == "5551999998888"

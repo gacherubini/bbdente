@@ -23,7 +23,6 @@ class Config(BaseSettings):
     database_url_teste: str = "postgresql+psycopg://bddente:bddente@localhost:5432/bddente_teste"
     secret_key: str = "troque-isto-em-producao"
     sessao_horas: int = 12
-    clinica_id_padrao: int = 1
     extrato_sqlite: str = "dados_extraidos/dentalis.sqlite"
     # Segredo do endpoint que o relogio externo chama (`POST /tarefas/lembretes`).
     # Vazio significa "nao ha tarefa agendada aqui", e o endpoint responde 404 —

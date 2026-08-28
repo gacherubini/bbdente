@@ -200,25 +200,40 @@ motivo de cada escolha comentado ao lado. São cinco comandos, uma vez na vida:
     # 4. sobe
     fly deploy -c infra/evolution/fly.toml --ha=false
 
-    # 5. TIRA O ENDEREÇO PÚBLICO. O `fly deploy` aloca IP sozinho, mesmo sem
-    #    serviço publicado — e endereço público numa API sem login é o buraco
-    #    que este arquivo inteiro existe para não abrir. Confira depois de todo
-    #    deploy dela; a lista tem de sair vazia.
+    # 5. o endereço público (DECISÃO REVERTIDA em 28/08/2026 — leia abaixo)
+    fly ips allocate-v6 --app bddente-whatsapp
+    fly ips allocate-v4 --shared --app bddente-whatsapp
     fly ips list --app bddente-whatsapp
-    fly ips release <cada endereço listado> --app bddente-whatsapp
 
     # 6. confere que ela responde — de dentro do BDDente, que é o único lugar
     #    de onde ela é alcançável
     fly ssh console --app bddente -C \
         "python -c \"import httpx; print(httpx.get('http://bddente-whatsapp.internal:8080', timeout=10).status_code)\""
 
-**Ela não pode ter endereço público.** A Evolution não tem login — a única coisa
-entre a internet e o WhatsApp pessoal da mãe do dono do projeto é aquela chave de
-cabeçalho. O `fly.toml` dela não tem `[http_service]` nem `[[services.ports]]`, e é
-por isso: sem porta publicada, o Fly não lhe dá endereço na internet, e quem fala com
-ela é o BDDente pela rede privada `.internal`. Ela também tem
-`min_machines_running = 1` e `auto_stop_machines = "off"` pelo mesmo motivo que o
-BDDente: Baileys mantém um socket vivo, e máquina que dorme é sessão que cai.
+**Ela tem endereço público, e isso foi uma decisão revertida em 28/08/2026.** Até
+essa data o `fly.toml` dela não tinha `[http_service]` de propósito: sem porta
+publicada, o Fly não lhe dá endereço na internet, e quem falava com ela era só o
+BDDente pela rede privada `.internal`. O dono do projeto pediu o endereço público
+para abrir o `/manager` dela direto, e pediu duas vezes.
+
+O que isso trocou, escrito para quem chegar depois: **a Evolution não tem login.**
+Não há usuário, não há senha, não há segundo fator. A única coisa entre a internet
+inteira e o WhatsApp pessoal da mãe do dono do projeto é a `AUTHENTICATION_API_KEY`
+num cabeçalho. Antes, vazar a chave não bastava — era preciso também estar dentro da
+rede privada. Essa segunda tranca deixou de existir.
+
+O caminho de volta é curto, se um dia isso pesar mais que a comodidade: apagar o
+`[http_service]` do `infra/evolution/fly.toml`, `fly ips release <cada endereço>` e
+deploy. E para ver o `/manager` sem IP público — mesma tela, sem tranca nenhuma a
+menos:
+
+    fly proxy 8080:8080 --app bddente-whatsapp
+    # abre http://localhost:8080/manager e cola a AUTHENTICATION_API_KEY
+
+Ela também tem `min_machines_running = 1` e `auto_stop_machines = "off"`, e agora
+esses dois viraram obrigatórios: com o proxy do Fly na frente há tráfego para contar,
+e a máquina passaria a ser suspensa sozinha. Baileys mantém um socket vivo, e máquina
+que dorme é sessão que cai.
 
 **A base `evolution` é separada da base do BDDente, e de propósito.** É o mesmo
 cluster — não vale acender um segundo Postgres para isto —, mas tabela de prontuário e

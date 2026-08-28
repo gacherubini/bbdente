@@ -181,12 +181,13 @@ def test_a_tela_mostra_o_numero_conectado(sessao, cenario):
     provedor = _evolution(
         lambda pedido: httpx.Response(
             200,
-            json={
-                "instance": {
-                    "state": "open",
+            json=[
+                {
+                    "name": "bddente",
+                    "connectionStatus": "open",
                     "ownerJid": "5551999998888:12@s.whatsapp.net",
                 }
-            },
+            ],
         )
     )
     app = criar_app()
@@ -200,6 +201,40 @@ def test_a_tela_mostra_o_numero_conectado(sessao, cenario):
     # O sufixo do aparelho vinculado (`:12`) não interessa a ninguém na tela.
     assert "5551999998888:12" not in html
     assert "conectado" in html.lower()
+
+
+def test_a_tela_nao_diz_conectado_para_sessao_sem_dono(sessao, cenario):
+    """A regressão de 28/08/2026, no lugar onde ela apareceu.
+
+    A Evolution ficou dois dias devolvendo `open` para um socket morto — ela
+    grava o estado em memória ANTES de tentar escrever o dono, e o passo que
+    escreve o dono foi o que estourou. A tela dizia "conectado", sem número
+    nenhum ao lado, enquanto nenhum lembrete tinha como sair.
+
+    **Sessão sem dono não é sessão**: ninguém leu o QR. A tela tem que oferecer
+    Conectar, e não repetir a mentira que ela existe justamente para desmentir.
+    """
+    provedor = _evolution(
+        lambda pedido: httpx.Response(
+            200,
+            json=[{"name": "bddente", "connectionStatus": "open", "ownerJid": None}],
+        )
+    )
+    app = criar_app()
+    app.dependency_overrides[obter_sessao] = lambda: sessao
+    app.dependency_overrides[provedor_atual] = lambda: provedor
+    with TestClient(app, follow_redirects=False) as c:
+        c.cookies.set(NOME_COOKIE, assinar(cenario["usuario"]))
+        html = c.get("/configuracoes").text
+
+    assert "<b>conectado</b>" not in html.lower()
+    assert "aguardando qr" in html.lower()
+    # O botão oferece Conectar, não "Ler QR de novo" — não há QR lido para reler.
+    assert "Ler QR de novo" not in html
+
+    # E o que fica anotado é o que a agenda vai mostrar depois sem pagar rede.
+    configuracao = service.configuracao_de(sessao, clinica_id=cenario["clinica"].id)
+    assert configuracao.whatsapp_estado != "CONECTADO"
 
 
 def test_sem_sessao_ninguem_pede_qr_nem_desconecta(sessao, provedor):

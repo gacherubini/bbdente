@@ -108,6 +108,21 @@ def trocar_senha(
     return usuario
 
 
+def ids_de_clinica(sessao: Session) -> list[int]:
+    """As clinicas que existem, em ordem — para quem precisa rodar por todas.
+
+    Existe para o relogio dos lembretes nao precisar chutar. Ele supunha
+    `clinica_id = 1`, e em 28/08/2026 a clinica de producao tinha outro id: TODA
+    batida morria em `ForeignKeyViolation` antes de olhar um horario, e nenhum
+    lembrete saiu. Chave primaria e surrogate — ela e o que o banco decidiu, nao
+    o que o codigo espera.
+
+    Devolve so os ids: quem chama nao precisa de `auth.models` para percorrer as
+    clinicas, e a fronteira de modulo (§2) continua de pe.
+    """
+    return list(sessao.scalars(select(Clinica.id).order_by(Clinica.id)))
+
+
 @dataclass(frozen=True)
 class IdentidadeDaClinica:
     """Como a clinica se apresenta para fora — nada mais que isso.

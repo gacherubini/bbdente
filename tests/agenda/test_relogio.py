@@ -158,3 +158,55 @@ def test_os_tres_caminhos_chamam_a_mesma_funcao(modulo):
 
     assert "rodar(" in fonte
     assert "despachar(" not in fonte, "chamou despachar direto em vez de rodar()"
+
+
+# --- para quem ele bate ------------------------------------------------------
+
+
+def test_o_relogio_bate_para_as_clinicas_que_existem(sessao, monkeypatch):
+    """A regressão de 28/08/2026, e a razão de o palpite ter saído do código.
+
+    `config.clinica_id_padrao` era `1` — um palpite sobre uma chave primária. A
+    clínica de produção nasceu com outro id, e **toda** batida morria em
+    `ForeignKeyViolation` antes de olhar um único horário. Nenhum lembrete saiu,
+    e nada na tela dizia isso: quem descobriu foi o log.
+
+    Repare no que quase aconteceu: `configuracao_de` CRIA a linha que falta. Se
+    a `FOREIGN KEY` não estivesse lá, o relógio teria rodado em silêncio para uma
+    clínica fantasma, sem horário nenhum, para sempre. O que salvou foi o banco,
+    não o código — e por isso a pergunta "quais clínicas existem?" passou a ser
+    feita ao banco, que é quem sabe.
+    """
+    from contextlib import nullcontext
+
+    from app.agenda.lembretes import Resumo
+    from app.agenda.whatsapp.fake import ProvedorFake
+    from app.auth.models import Clinica
+
+    primeira = Clinica(nome="Consultório Dra. Kátia")
+    segunda = Clinica(nome="Consultório da Esquina")
+    sessao.add_all([primeira, segunda])
+    sessao.flush()
+
+    vistos: list[int] = []
+
+    def anotar(_sessao, *, clinica_id, agora, provedor):
+        vistos.append(clinica_id)
+        return Resumo()
+
+    monkeypatch.setattr(relogio, "Sessao", lambda: nullcontext(sessao))
+    monkeypatch.setattr(relogio, "rodar", anotar)
+    monkeypatch.setattr(relogio, "provedor_atual", ProvedorFake)
+
+    relogio.bater()
+
+    assert vistos == [primeira.id, segunda.id]
+
+
+def test_o_relogio_nao_chuta_id_de_clinica():
+    """A barreira contra a volta do palpite: o módulo não pode voltar a supor
+    uma chave primária. Um id chutado que existe é pior que um que não existe —
+    o que não existe pelo menos estoura."""
+    import inspect as _inspect
+
+    assert "clinica_id_padrao" not in _inspect.getsource(relogio)

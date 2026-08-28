@@ -79,21 +79,43 @@ primary_region = "iad"  # junto do BDDente e do Postgres: a conversa e pela rede
   LOG_BAILEYS = "error"
   TELEMETRY = "false"
 
-# NAO HA `[http_service]` NEM `[[services]]`, e e a decisao de seguranca deste
-# arquivo: servico publicado e endereco publico, e a Evolution nao tem login — a
-# unica coisa entre a internet e o WhatsApp pessoal dela seria uma chave de
-# cabecalho. Sem servico, o Fly nao aloca IP e o proxy dele nunca ve esta app.
+# ESTA APP TEM ENDERECO PUBLICO, e isso e uma DECISAO REVERTIDA — leia antes de
+# mexer. Ate 28/08/2026 nao havia `[http_service]` aqui, de proposito: sem porta
+# publicada o Fly nao aloca IP e o proxy dele nunca ve a app, e quem falava com
+# ela era so o BDDente pela rede privada 6PN (`bddente-whatsapp.internal`).
 #
-# Quem fala com ela e o BDDente, por `http://bddente-whatsapp.internal:8080`: a
-# rede privada 6PN chega direto na maquina, sem passar pelo proxy e sem passar
-# pela internet. (Um `[[services]]` sem `[[services.ports]]`, que seria a forma
-# obvia de escrever "privado", o Fly recusa desde 2024 — e foi o que derrubou o
-# primeiro deploy com erro 500.)
+# O dono do projeto pediu o endereco publico para poder abrir o `/manager` dela
+# direto, e pediu duas vezes. Fica registrado o que isso troca:
 #
-# Sem proxy tambem nao existe autostop: nao ha trafego para o Fly contar, entao
-# a maquina simplesmente fica de pe — que e o que Baileys precisa. Socket vivo:
-# maquina que suspende e sessao que cai, e QR de novo a cada cochilo. Custo:
-# ~US$ 3 a 5/mes, da escolha por Baileys.
+#   **A Evolution nao tem login.** Nao ha usuario, nao ha senha, nao ha segundo
+#   fator. A unica coisa entre a internet inteira e o WhatsApp pessoal da mae do
+#   dono do projeto e a `AUTHENTICATION_API_KEY` num cabecalho. Vazou a chave —
+#   num print, num log, num `curl` colado em algum lugar — e quem a tiver le e
+#   manda mensagem como ela, e nada aqui percebe.
+#
+#   Antes, vazar a chave nao bastava: era preciso tambem estar dentro da rede
+#   privada. Essa segunda tranca deixou de existir.
+#
+# Se um dia isso pesar mais que a comodidade, o caminho de volta e curto: apagar
+# o bloco `[http_service]`, `fly ips release <cada endereco>` e deploy — e para
+# ver o `/manager` sem IP publico, `fly proxy 8080:8080 -a bddente-whatsapp` e
+# abrir `http://localhost:8080/manager`, que da exatamente a mesma tela.
+#
+# (Um `[[services]]` sem `[[services.ports]]`, que seria a forma obvia de
+# escrever "privado", o Fly recusa desde 2024 — e foi o que derrubou o primeiro
+# deploy com erro 500. Nao tente escrever "privado" assim.)
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # OS DOIS SAO OBRIGATORIOS, e nao ajuste de custo. Com o proxy na frente, o
+  # Fly passa a contar trafego e a suspender a maquina sozinho — e Baileys vive
+  # de um socket aberto: maquina que dorme e sessao que cai, e QR de novo a cada
+  # cochilo. Antes deste bloco existir, nao havia proxy para contar nada e a
+  # maquina ficava de pe por consequencia; agora ela fica de pe porque estas
+  # duas linhas mandam. Custo: ~US$ 3 a 5/mes, da escolha por Baileys.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
 [checks]
   [checks.porta]
     type = "tcp"

@@ -27,11 +27,12 @@ TOKEN = "segredo-de-teste-bem-longo"
 @pytest.fixture
 def cenario(sessao, monkeypatch):
     monkeypatch.setattr(config, "tarefas_token", TOKEN)
-    monkeypatch.setattr(config, "clinica_id_padrao", 0)
+    # Não há mais id para apontar: quem responde "para quais clínicas?" é o
+    # banco. O palpite `clinica_id_padrao = 1` saiu do código em 28/08/2026,
+    # depois de derrubar todas as batidas de produção — ver `test_relogio.py`.
     clinica = Clinica(nome="Consultório Dra. Kátia")
     sessao.add(clinica)
     sessao.flush()
-    monkeypatch.setattr(config, "clinica_id_padrao", clinica.id)
     usuario = criar_usuario(
         sessao, clinica_id=clinica.id, email="k@e.com", senha="senha-longa-12", nome="K"
     )

@@ -51,6 +51,30 @@ def _numero_de(instancia: dict) -> str | None:
     return numero or None
 
 
+def _conexao_de(instancia: dict) -> Conexao:
+    """A linha da instancia virando o estado que a tela e o relogio usam.
+
+    **Sem `ownerJid` nao ha conexao, diga o `connectionStatus` o que disser.** Sao
+    duas razoes independentes, e cada uma sozinha ja bastaria:
+
+    O `connectionStatus` do schema da Evolution nasce `open` por padrao
+    (`@default(open)` no Prisma), entao uma instancia recem-criada, que ninguem
+    pareou, ja se anuncia conectada. E em 28/08/2026 esta clinica passou dois
+    dias vendo "conectado" numa sessao morta: o Baileys emitiu
+    `connection: 'open'` sem `client.user`, a Evolution gravou o `open` e so
+    entao estourou em `this.client.user.id` — antes de escrever o `ownerJid`.
+
+    Dono e a unica coisa que so aparece depois que alguem apontou o celular para
+    o QR. `open` sem dono e o mesmo "acho que da para enviar" de sempre, e a
+    resposta segura continua sendo a que nao manda mensagem para paciente.
+    """
+    numero = _numero_de(instancia)
+    estado = ESTADOS.get(instancia.get("connectionStatus"), EstadoDaConexao.DESCONECTADO)
+    if estado is EstadoDaConexao.CONECTADO and not numero:
+        estado = EstadoDaConexao.AGUARDANDO_QR
+    return Conexao(estado=estado, numero=numero)
+
+
 def _qr_ou_erro(imagem: str | None) -> Conexao:
     """O QR vira data URI; a falta dele vira erro de tela, nunca excecao."""
     if not imagem:
@@ -94,14 +118,7 @@ class ProvedorEvolution:
         )
 
     def estado(self) -> EstadoDaConexao:
-        try:
-            resposta = self.cliente.get(f"/instance/connectionState/{self.instancia}")
-            resposta.raise_for_status()
-            bruto = resposta.json()["instance"]["state"]
-        except Exception as problema:  # noqa: BLE001 — ver o docstring do modulo
-            registro.warning("nao consegui ler o estado da Evolution: %s", _curto(problema))
-            return EstadoDaConexao.DESCONECTADO
-        return ESTADOS.get(bruto, EstadoDaConexao.DESCONECTADO)
+        return self.conexao().estado
 
     def conexao(self) -> Conexao:
         """O estado com o numero junto, para a tela dizer "Conectado como (51)...".
@@ -109,11 +126,22 @@ class ProvedorEvolution:
         Quem corre o risco de perder o proprio WhatsApp tem direito de ver na tela
         qual numero esta correndo esse risco. E o numero conectado nao vem daqui de
         dentro: vem da Evolution, que e quem sabe qual celular leu o QR.
+
+        **Pergunta ao `fetchInstances`, e nao ao `connectionState`** — e essa e a
+        escolha inteira deste metodo. O `connectionState` devolve uma variavel que
+        vive na memoria do processo da Evolution e que ela atualiza ANTES de
+        conseguir gravar qualquer coisa; quando o passo seguinte estoura, o `open`
+        fica la, sozinho, ate alguem reiniciar a maquina. O `fetchInstances` le do
+        Postgres dela, onde so chega o que ela conseguiu escrever inteiro — e e de
+        la que vem o `ownerJid`, que o `connectionState` nunca carregou. A tela
+        prometia "conectado como (51)..." e nao tinha como cumprir.
         """
         try:
-            resposta = self.cliente.get(f"/instance/connectionState/{self.instancia}")
+            resposta = self.cliente.get(
+                "/instance/fetchInstances", params={"instanceName": self.instancia}
+            )
             resposta.raise_for_status()
-            instancia = resposta.json()["instance"]
+            corpo = resposta.json()
         except Exception as problema:  # noqa: BLE001 — ver o docstring do modulo
             registro.warning("nao consegui ler o estado da Evolution: %s", _curto(problema))
             return Conexao(
@@ -121,8 +149,13 @@ class ProvedorEvolution:
                 erro="não consegui falar com o WhatsApp",
             )
 
-        estado = ESTADOS.get(instancia.get("state"), EstadoDaConexao.DESCONECTADO)
-        return Conexao(estado=estado, numero=_numero_de(instancia))
+        # Lista de uma linha so. Vazia e a Evolution recriada do zero: nao existe
+        # instancia nenhuma, o que e DESCONECTADO e nao erro — o conserto e o
+        # mesmo clique de Conectar de sempre.
+        linhas = corpo if isinstance(corpo, list) else [corpo]
+        if not linhas or not isinstance(linhas[0], dict):
+            return Conexao(estado=EstadoDaConexao.DESCONECTADO)
+        return _conexao_de(linhas[0])
 
     def parear(self) -> Conexao:
         """Pede um QR novo. E o unico caminho para (re)conectar.
@@ -142,9 +175,35 @@ class ProvedorEvolution:
         celular na mao. O relogio das 21h, se topar com uma Evolution vazia,
         falha e aparece na tela — nao inventa uma instancia sem sessao para
         depois nao conseguir enviar do mesmo jeito.
+
+        **E tambem o unico metodo que desfaz uma sessao fantasma**, pela mesma
+        razao de ser o unico que cria. Em 28/08/2026 a instancia ficou presa em
+        `open` na memoria da Evolution, sem sessao nenhuma por tras: clicar aqui
+        respondia "ja esta conectada" e QR nenhum, e nao havia como sair — o
+        unico botao que consertaria era o que ja se achava consertado. Sem dono
+        no banco dela, a sessao nao existe, e o que impede de ler o QR de novo e
+        so a memoria mentindo. Entao derruba e pergunta de novo.
         """
         conexao = self._pedir_qr()
         if conexao is not None:
+            # `numero is None` e o gatilho, e nao "nao esta CONECTADO": derrubar
+            # e apagar credencial, e credencial so se apaga com certeza. Sem
+            # `ownerJid` no banco dela nunca houve pareamento que terminasse —
+            # nao ha o que perder. COM dono e estado ainda nao aberto, pode ser
+            # uma sessao real no meio da reconexao (a Evolution poe `open` na
+            # memoria e so grava o banco depois de buscar a foto do perfil, e
+            # essa janela existe): derrubar ali custaria um QR novo a toa.
+            if conexao.numero is None and not conexao.imagem:
+                # "Ja conectada" que o banco desmente: fantasma. Derruba e volta
+                # ao caminho normal — a proxima resposta ja traz o QR.
+                registro.warning(
+                    "instancia %s presa em conectado sem dono; derrubando para reler o QR",
+                    self.instancia,
+                )
+                self.desconectar()
+                return self._pedir_qr() or Conexao(
+                    estado=EstadoDaConexao.DESCONECTADO, erro="não consegui pedir o QR"
+                )
             return conexao
 
         # 404: a instancia nao existe la. Cria e tenta de novo.
@@ -178,13 +237,12 @@ class ProvedorEvolution:
 
         # Ja conectada, a Evolution responde o estado em vez de um QR — e nao ha
         # QR nenhum para mostrar, o que e a resposta certa e nao um erro.
+        #
+        # **Mas ela responde isso lendo a mesma variavel em memoria do
+        # `connectionState`**, entao "ja conectada" aqui vale tanto quanto ali:
+        # nada, ate conferir no banco dela. Quem confere e o `conexao()`.
         if corpo.get("instance"):
-            return Conexao(
-                estado=ESTADOS.get(
-                    corpo["instance"].get("state"), EstadoDaConexao.DESCONECTADO
-                ),
-                numero=_numero_de(corpo["instance"]),
-            )
+            return self.conexao()
 
         return _qr_ou_erro(corpo.get("base64"))
 

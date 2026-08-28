@@ -19,6 +19,7 @@ from app.agenda.lembretes import rodar
 from app.agenda.whatsapp import Provedor
 from app.agenda.whatsapp.evolution import ProvedorEvolution
 from app.agenda.whatsapp.fake import ProvedorFake
+from app.auth.service import ids_de_clinica
 from app.config import config
 from app.shared.db import obter_sessao
 
@@ -77,18 +78,31 @@ def rodar_lembretes(
 
     # Relogio de parede da clinica: o container roda com TZ=America/Sao_Paulo, e
     # e por isso que `datetime.now()` sem fuso e o certo aqui (§4 do plano).
-    resumo = rodar(
-        sessao,
-        clinica_id=config.clinica_id_padrao,
-        agora=datetime.now(),
-        provedor=provedor,
-    )
+    #
+    # Quais clinicas sao, quem responde e o banco — nao uma variavel de ambiente.
+    # E a mesma correcao do `relogio.bater()`, e pela mesma razao: um id chutado
+    # derruba a passada inteira, ou pior, acerta a clinica errada em silencio.
+    agora = datetime.now()
+    resumos = [
+        rodar(sessao, clinica_id=clinica_id, agora=agora, provedor=provedor)
+        for clinica_id in ids_de_clinica(sessao)
+    ]
+
+    # Somado, e nao uma lista por clinica: este corpo vai para o log de um
+    # servico de terceiro, e ali um numero por clinica seria uma contagem de
+    # consultorios exposta sem precisar.
+    def total(campo: str) -> int:
+        return sum(getattr(resumo, campo) for resumo in resumos)
+
     return {
-        "reservados": resumo.reservados,
-        "descartados": resumo.descartados,
-        "enviados": resumo.enviados,
-        "expirados": resumo.expirados,
-        "falhados": resumo.falhados,
-        "cancelados": resumo.cancelados,
-        "esperando": resumo.esperando,
+        campo: total(campo)
+        for campo in (
+            "reservados",
+            "descartados",
+            "enviados",
+            "expirados",
+            "falhados",
+            "cancelados",
+            "esperando",
+        )
     }
