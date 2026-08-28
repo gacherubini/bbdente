@@ -419,12 +419,32 @@ Confira, e anote a data da conferência:
 
 ## Backup
 
-Duas camadas: os snapshots diários que o Fly.io tira do volume (retenção de 5 dias,
-não configurável no plano barato) e uma cópia própria, guardada fora dele.
+Duas camadas: os snapshots diários que o Fly.io tira do volume do Postgres, e uma
+cópia própria, guardada fora dele.
 
-Cinco dias é pouco para prontuário — a cópia própria não é redundância, é o backup
-de verdade. Se quiser uma terceira camada, `fly postgres create --enable-backups`
-liga o backup contínuo em WAL, que custa alguns centavos de armazenamento por mês.
+**A retenção dos snapshots é 60 dias**, e isso foi ajustado a dedo em 28/08/2026 —
+o padrão do Fly são 5, e cinco dias é pouco para prontuário: um erro descoberto no
+sexto dia não teria de onde voltar. O comando é este, e vale conferir depois de
+qualquer recriação do cluster, porque um volume novo nasce com o padrão:
+
+    fly volumes list -a bddente-db
+    fly volumes update <id-do-volume> -a bddente-db \
+        --snapshot-retention 60 --scheduled-snapshots
+    fly volumes snapshots list <id-do-volume> -a bddente-db
+
+O que o snapshot NÃO cobre: ele é do volume, então o que ele guarda é o estado do
+disco. Se o Postgres gravar dado corrompido, o snapshot guarda a corrupção junto.
+É por isso que a cópia própria existe — um `pg_dump` que falha alto quando não
+consegue ler o banco é uma verificação, e não só uma cópia.
+
+**A cópia própria é manual, e portanto não acontece.** Fica escrito aqui sem meias
+palavras: até 28/08/2026 ninguém rodou o `scripts/backup.py` contra produção uma
+vez sequer. Está no `README` do script que ele "roda diariamente", mas nada o faz
+rodar — não há cron, não há tarefa agendada. Se você está lendo isto e a linha
+continua aqui, a única camada de verdade são os 60 dias de snapshot.
+
+Se um dia quiser a terceira camada, `fly postgres create --enable-backups` liga o
+backup contínuo em WAL, que custa alguns centavos de armazenamento por mês.
 
 A cópia própria roda **na máquina da clínica**, não dentro do container — o container
 não tem disco que sobreviva a um restart, e a imagem não leva o `pg_dump`. Abra o
