@@ -177,19 +177,20 @@
 <h2 class="titulo-bloco">Últimos envios</h2>
 <table>
   <thead>
-    <tr><th>Quando</th><th>Número</th><th>Situação</th><th>Motivo</th></tr>
+    <tr><th>Quando</th><th>Quem</th><th>Número</th><th>Situação</th><th>Motivo</th></tr>
   </thead>
   <tbody>
   {% for envio in envios %}
     <tr>
       {# A hora vem convertida do `ultimos_envios`. O template nao decide fuso. #}
       <td>{{ envio.quando.strftime('%d/%m %H:%M') }}</td>
+      <td>{{ envio.nome or '—' }}</td>
       <td>{{ envio.numero or '—' }}</td>
       <td>{{ envio.situacao }}</td>
       <td>{{ motivos.get(envio.motivo, envio.motivo or '') }}</td>
     </tr>
   {% else %}
-    <tr><td colspan="4" style="color:var(--texto-fraco)">Nada ainda.</td></tr>
+    <tr><td colspan="5" style="color:var(--texto-fraco)">Nada ainda.</td></tr>
   {% endfor %}
   </tbody>
 </table>

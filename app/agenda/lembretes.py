@@ -604,6 +604,11 @@ class LinhaDoExtrato:
     """
 
     quando: datetime
+    # Numero sozinho nao diz nada para quem olha a tela. Aqui e a tela DELA: a
+    # allowlist do `agenda/mensagem.py` limita o que a PACIENTE recebe no
+    # celular, nao o que a clinica ve no proprio sistema. A previsao logo acima
+    # ja mostra nome pela mesma razao.
+    nome: str
     numero: str | None
     situacao: str
     motivo: str | None
@@ -619,9 +624,41 @@ def ultimos_envios(
         .order_by(Lembrete.criado_em.desc(), Lembrete.id.desc())
         .limit(limite)
     ).all()
+
+    # Duas consultas para a lista inteira, nao uma por linha. E os agendamentos
+    # vem SEM filtrar `excluido_em`: isto e historico. Um horario desmarcado
+    # depois nao apaga o fato de a mensagem ter saido, e a linha sem nome seria
+    # justamente a que mais precisa dele.
+    agendamentos = {
+        agendamento.id: agendamento
+        for agendamento in sessao.scalars(
+            select(Agendamento).where(
+                Agendamento.clinica_id == clinica_id,
+                Agendamento.id.in_({lembrete.agendamento_id for lembrete in linhas}),
+            )
+        ).all()
+    }
+    contatos = contatos_de(
+        sessao,
+        clinica_id=clinica_id,
+        paciente_ids={
+            agendamento.paciente_id
+            for agendamento in agendamentos.values()
+            if agendamento.paciente_id
+        },
+    )
+
+    def _nome(lembrete: Lembrete) -> str:
+        agendamento = agendamentos.get(lembrete.agendamento_id)
+        if agendamento is None:
+            return ""
+        contato = contatos.get(agendamento.paciente_id)
+        return contato.nome if contato else (agendamento.nome_avulso or "")
+
     return [
         LinhaDoExtrato(
             quando=parede(lembrete.enviado_em or lembrete.criado_em),
+            nome=_nome(lembrete),
             numero=lembrete.numero,
             situacao=lembrete.situacao.value.lower(),
             motivo=lembrete.motivo,

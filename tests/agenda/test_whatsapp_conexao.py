@@ -394,3 +394,64 @@ def test_o_extrato_mostra_a_hora_da_parede_da_clinica(cliente, sessao, cenario):
     html = cliente.get("/configuracoes").text
     assert "28/08 14:49" in html
     assert "28/08 17:49" not in html
+
+
+def test_o_extrato_mostra_o_nome_de_quem_recebeu(cliente, sessao, cenario):
+    """Número sozinho não diz nada para quem olha a tela.
+
+    Aqui é a tela DELA, não uma mensagem que sai para fora: a regra do
+    `agenda/mensagem.py` limita o que a paciente recebe no celular, e não o que
+    a clínica vê no próprio sistema. A previsão logo acima já mostra nome pelo
+    mesmo motivo, e o extrato passa a usar a mesma fonte — `contatos_de`, pela
+    `service` de pacientes, sem `JOIN` atravessando módulo.
+    """
+    from datetime import UTC, date, datetime, time
+
+    from app.agenda.lembretes import ultimos_envios
+    from app.agenda.models import Lembrete, SituacaoLembrete, TipoLembrete
+    from app.pacientes import service as pacientes
+
+    paciente = pacientes.criar(
+        sessao,
+        clinica_id=cenario["clinica"].id,
+        usuario_id=cenario["usuario"].id,
+        nome="MARIA HELENA SOUZA",
+        telefone="51999998888",
+    )
+    com_ficha = service.marcar(
+        sessao,
+        clinica_id=cenario["clinica"].id,
+        usuario_id=cenario["usuario"].id,
+        dia=date(2026, 8, 29),
+        inicio=time(14, 0),
+        paciente_id=paciente.id,
+    )
+    # Avulso: não tem ficha, e o nome mora no próprio horário.
+    sem_ficha = service.marcar(
+        sessao,
+        clinica_id=cenario["clinica"].id,
+        usuario_id=cenario["usuario"].id,
+        dia=date(2026, 8, 29),
+        inicio=time(15, 0),
+        nome_avulso="JOÃO DA ESQUINA",
+    )
+    for agendamento, numero in ((com_ficha, "5551999998888"), (sem_ficha, "5551977776666")):
+        sessao.add(
+            Lembrete(
+                clinica_id=cenario["clinica"].id,
+                agendamento_id=agendamento.id,
+                tipo=TipoLembrete.VESPERA,
+                situacao=SituacaoLembrete.ENVIADO,
+                numero=numero,
+                agendado_para=datetime(2026, 8, 28, 17, 49, tzinfo=UTC),
+                enviado_em=datetime(2026, 8, 28, 17, 49, tzinfo=UTC),
+            )
+        )
+    sessao.flush()
+
+    nomes = {linha.nome for linha in ultimos_envios(sessao, clinica_id=cenario["clinica"].id)}
+    assert nomes == {"MARIA HELENA SOUZA", "JOÃO DA ESQUINA"}
+
+    html = cliente.get("/configuracoes").text
+    assert "MARIA HELENA SOUZA" in html
+    assert "JOÃO DA ESQUINA" in html
