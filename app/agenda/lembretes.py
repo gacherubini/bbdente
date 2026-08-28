@@ -75,6 +75,10 @@ class Resumo:
     expirados: int = 0
     falhados: int = 0
     cancelados: int = 0
+    # Venceu, mas o WhatsApp estava fora. Continua PENDENTE e tenta na proxima
+    # batida — nao e falha, e espera. Quem decide que ficou tarde demais e o
+    # EXPIRADO das seis horas minimas, nao esta contagem.
+    adiados: int = 0
     # Reservados que ainda nao venceram. Numa batida qualquer este e o numero
     # grande: a agenda inteira de amanha esta esperando a hora dela.
     esperando: int = 0
@@ -379,10 +383,22 @@ def despachar(
             # "nao sei se saiu" e nunca e retomado sozinho. Com o socket caido eu
             # SEI que nao saiu, e deixar a linha travada nesse estado trocaria uma
             # certeza por uma duvida que so uma pessoa consegue desfazer.
-            _fechar(sessao, lembrete, SituacaoLembrete.FALHOU, "desconectado")
+            #
+            # **Fica PENDENTE, e nao FALHOU.** Ate 28/08/2026 fechava aqui, e a
+            # fila so olha PENDENTE: dez minutos de queda apagavam para sempre
+            # tudo que vencia dentro deles, e reconectar nao trazia nada de
+            # volta. A primeira metade do raciocinio estava certa; a segunda nao
+            # — saber que nao saiu e razao para tentar de novo, nao para
+            # desistir. Quem decide que e tarde demais ja existe, logo acima, e e
+            # o EXPIRADO das seis horas minimas de antecedencia; ele roda ANTES
+            # desta guarda, entao adiar e seguro por construcao: ou a conexao
+            # volta a tempo, ou o lembrete morre pelo motivo certo, no lugar
+            # certo. O motivo fica gravado para a tela poder dizer por que nao
+            # saiu ainda.
+            lembrete.motivo = "desconectado"
             lembrete.tentativas += 1
             sessao.commit()
-            resumo.falhados += 1
+            resumo.adiados += 1
             continue
 
         if not _reservar_para_envio(sessao, lembrete):

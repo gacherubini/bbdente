@@ -336,9 +336,8 @@ def test_uma_falha_de_rede_no_meio_nao_impede_as_seguintes(sessao, cenario):
 
 
 def test_desconectado_nao_tenta_enviar(sessao, cenario):
-    """Task 18: sem sessão de WhatsApp, tudo vira FALHOU/desconectado e nenhuma
-    chamada de envio sai — insistir com o socket caído é o padrão que queima o
-    número."""
+    """Task 18: sem sessão de WhatsApp nenhuma chamada de envio sai — insistir
+    com o socket caído é o padrão que queima o número."""
     _marcar(sessao, cenario, "MARIA SILVA", "51999998888")
 
     envios = {"n": 0}
@@ -353,8 +352,60 @@ def test_desconectado_nao_tenta_enviar(sessao, cenario):
 
     assert envios["n"] == 0
     assert resumo.enviados == 0
-    assert resumo.falhados == 1
     assert sessao.query(Lembrete).one().motivo == "desconectado"
+
+
+def test_desconectado_adia_o_lembrete_em_vez_de_queimar(sessao, cenario):
+    """A regressão de 28/08/2026, e ela custou um lembrete de verdade.
+
+    Estar desconectado fechava o lembrete como FALHOU, e a fila só olha
+    PENDENTE: dez minutos de queda apagavam, em definitivo, tudo que vencia
+    dentro deles. Reconectar não trazia nada de volta.
+
+    O raciocínio original acertava a primeira metade — "com o socket caído eu SEI
+    que não saiu", e por isso não pode ficar ENVIANDO, que significa "não sei" —
+    e errava a segunda: saber que não saiu é razão para tentar de novo, não para
+    desistir. Quem decide que é tarde demais já existe seis linhas acima, e é o
+    EXPIRADO das seis horas mínimas de antecedência. Essa guarda roda ANTES desta,
+    então adiar é seguro por construção: ou a conexão volta a tempo, ou o
+    lembrete morre pelo motivo certo, no lugar certo.
+    """
+    _marcar(sessao, cenario, "MARIA SILVA", "51999998888")
+
+    def caido(pedido):
+        if "fetchInstances" in str(pedido.url):
+            return httpx.Response(200, json=[{"connectionStatus": "close", "ownerJid": None}])
+        raise AssertionError("desconectado não pode chamar o envio")
+
+    resumo = _rodar(sessao, cenario, _provedor(caido))
+
+    lembrete = sessao.query(Lembrete).one()
+    assert lembrete.situacao is SituacaoLembrete.PENDENTE
+    assert lembrete.motivo == "desconectado"
+    assert lembrete.tentativas == 1
+    assert resumo.adiados == 1
+    assert resumo.falhados == 0
+
+
+def test_o_lembrete_adiado_sai_na_batida_seguinte_a_reconexao(sessao, cenario):
+    """O ponto inteiro do adiamento: a batida seguinte manda o que ficou."""
+    _marcar(sessao, cenario, "MARIA SILVA", "51999998888")
+
+    def caido(pedido):
+        return httpx.Response(200, json=[{"connectionStatus": "close", "ownerJid": None}])
+
+    def de_pe(pedido):
+        if "fetchInstances" in str(pedido.url):
+            return httpx.Response(200, json=[{"connectionStatus": "open", "ownerJid": DONO}])
+        return httpx.Response(201, json={"key": {"id": "3EB0C767D"}})
+
+    _rodar(sessao, cenario, _provedor(caido))
+    resumo = _rodar(sessao, cenario, _provedor(de_pe))
+
+    assert resumo.enviados == 1
+    lembrete = sessao.query(Lembrete).one()
+    assert lembrete.situacao is SituacaoLembrete.ENVIADO
+    assert lembrete.id_externo == "3EB0C767D"
 
 
 # --- a instância nasce sozinha ----------------------------------------------

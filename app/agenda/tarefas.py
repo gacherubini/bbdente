@@ -103,6 +103,7 @@ def rodar_lembretes(
             "expirados",
             "falhados",
             "cancelados",
+            "adiados",
             "esperando",
         )
     }
