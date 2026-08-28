@@ -337,3 +337,60 @@ def test_a_agenda_nao_fala_com_o_provedor(cliente, sessao, cenario, provedor):
     cliente.app.dependency_overrides[provedor_atual] = Explode
     assert cliente.get("/agenda").status_code == 200
     assert cliente.get("/agenda?vista=mes").status_code == 200
+
+
+def test_o_extrato_mostra_a_hora_da_parede_da_clinica(cliente, sessao, cenario):
+    """A regressão de 28/08/2026: a MESMA tela mostrava o MESMO envio em dois
+    horários, 14:49 em cima e 17:49 embaixo.
+
+    O `ultimo_envio` do topo passava por `parede()`; a tabela de baixo pegava o
+    `enviado_em` cru do ORM e o formatava no template. As colunas são
+    `timestamptz` e voltam em UTC, enquanto o consultório vive em UTC-3 — três
+    horas de diferença, e a tela desmentindo a si mesma.
+
+    Não dá para o template decidir fuso. Quem lê do banco converte, e é por isso
+    que `ultimos_envios` passou a devolver a hora já pronta.
+    """
+    from datetime import UTC, date, datetime, time
+
+    from app.agenda.lembretes import ultimos_envios
+    from app.agenda.models import Lembrete, SituacaoLembrete, TipoLembrete
+    from app.pacientes import service as pacientes
+
+    paciente = pacientes.criar(
+        sessao,
+        clinica_id=cenario["clinica"].id,
+        usuario_id=cenario["usuario"].id,
+        nome="MARIA SILVA",
+        telefone="51999998888",
+    )
+    agendamento = service.marcar(
+        sessao,
+        clinica_id=cenario["clinica"].id,
+        usuario_id=cenario["usuario"].id,
+        dia=date(2026, 8, 29),
+        inicio=time(14, 0),
+        paciente_id=paciente.id,
+    )
+
+    # 17:49 em UTC é 14:49 no relógio da parede do consultório.
+    sessao.add(
+        Lembrete(
+            clinica_id=cenario["clinica"].id,
+            agendamento_id=agendamento.id,
+            tipo=TipoLembrete.VESPERA,
+            situacao=SituacaoLembrete.ENVIADO,
+            numero="5551999998888",
+            agendado_para=datetime(2026, 8, 28, 17, 49, tzinfo=UTC),
+            enviado_em=datetime(2026, 8, 28, 17, 49, tzinfo=UTC),
+        )
+    )
+    sessao.flush()
+
+    linha = ultimos_envios(sessao, clinica_id=cenario["clinica"].id)[0]
+    assert linha.quando.hour == 14
+    assert linha.quando.minute == 49
+
+    html = cliente.get("/configuracoes").text
+    assert "28/08 14:49" in html
+    assert "28/08 17:49" not in html

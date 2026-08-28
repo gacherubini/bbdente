@@ -588,16 +588,46 @@ def previsao(sessao: Session, *, clinica_id: int, agora: datetime) -> list[Linha
     return linhas
 
 
-def ultimos_envios(sessao: Session, *, clinica_id: int, limite: int = 50) -> list[Lembrete]:
+@dataclass(frozen=True)
+class LinhaDoExtrato:
+    """Uma linha de "Ultimos envios", pronta para a tela.
+
+    Existe por causa da hora. As colunas sao `timestamptz` e voltam em UTC; o
+    consultorio vive em UTC-3. Em 28/08/2026 a MESMA tela mostrou o MESMO envio
+    as 14:49 no topo e as 17:49 na tabela, porque o topo passava por `parede()`
+    e a tabela pegava o `enviado_em` cru do ORM e formatava no template.
+
+    Devolver o modelo era o convite para isso: quem escreve o `{{ ... }}` nao
+    tem como saber que aquele campo precisa de conversao, e a tela desmente a si
+    mesma sem ninguem errar nada visivel. Aqui a hora ja sai convertida, e o
+    template nao decide fuso — que e a mesma razao de `LinhaDaPrevisao` existir.
+    """
+
+    quando: datetime
+    numero: str | None
+    situacao: str
+    motivo: str | None
+
+
+def ultimos_envios(
+    sessao: Session, *, clinica_id: int, limite: int = 50
+) -> list[LinhaDoExtrato]:
     """Os ultimos lembretes, mais novos primeiro. E o extrato do que saiu."""
-    return list(
-        sessao.scalars(
-            select(Lembrete)
-            .where(Lembrete.clinica_id == clinica_id)
-            .order_by(Lembrete.criado_em.desc(), Lembrete.id.desc())
-            .limit(limite)
-        ).all()
-    )
+    linhas = sessao.scalars(
+        select(Lembrete)
+        .where(Lembrete.clinica_id == clinica_id)
+        .order_by(Lembrete.criado_em.desc(), Lembrete.id.desc())
+        .limit(limite)
+    ).all()
+    return [
+        LinhaDoExtrato(
+            quando=parede(lembrete.enviado_em or lembrete.criado_em),
+            numero=lembrete.numero,
+            situacao=lembrete.situacao.value.lower(),
+            motivo=lembrete.motivo,
+        )
+        for lembrete in linhas
+    ]
 
 
 def ultimo_disparo(sessao: Session, *, clinica_id: int) -> datetime | None:

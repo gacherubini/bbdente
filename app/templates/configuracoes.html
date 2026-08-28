@@ -182,9 +182,10 @@
   <tbody>
   {% for envio in envios %}
     <tr>
-      <td>{{ (envio.enviado_em or envio.criado_em).strftime('%d/%m %H:%M') }}</td>
+      {# A hora vem convertida do `ultimos_envios`. O template nao decide fuso. #}
+      <td>{{ envio.quando.strftime('%d/%m %H:%M') }}</td>
       <td>{{ envio.numero or '—' }}</td>
-      <td>{{ envio.situacao.value | lower }}</td>
+      <td>{{ envio.situacao }}</td>
       <td>{{ motivos.get(envio.motivo, envio.motivo or '') }}</td>
     </tr>
   {% else %}
