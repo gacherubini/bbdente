@@ -238,6 +238,14 @@ def test_o_cliente_nasce_com_timeout_explicito():
 CONSULTA = date(2026, 9, 1)
 AGORA = datetime(2026, 8, 31, 14, 0)
 
+# Quando o horário foi marcado. Fixo, e não o relógio do banco, de propósito: a
+# regra do "marcado em cima da hora" compara `criado_em` com o vencimento, e o
+# `criado_em` nasce de `server_default=now()`. Com o relógio de verdade decidindo,
+# este cenário passava de manhã e reprovava à tarde — em 31/08/2026 às 14h a
+# suíte ficou vermelha sozinha, sem ninguém ter tocado em nada, porque AGORA é
+# exatamente aquela data. Quem testa marcação tardia sobrescreve com o helper.
+MARCADO_EM = datetime(2026, 8, 24, 10, 0)
+
 
 @pytest.fixture
 def cenario(sessao):
@@ -273,7 +281,7 @@ def _marcar(sessao, cenario, nome, telefone):
         paciente_id=paciente.id,
         aceita=True,
     )
-    return service.marcar(
+    agendamento = service.marcar(
         sessao,
         clinica_id=cenario["clinica"].id,
         usuario_id=cenario["usuario"].id,
@@ -281,6 +289,9 @@ def _marcar(sessao, cenario, nome, telefone):
         inicio=time(14, 0),
         paciente_id=paciente.id,
     )
+    agendamento.criado_em = MARCADO_EM.astimezone()
+    sessao.flush()
+    return agendamento
 
 
 def _rodar(sessao, cenario, provedor):
