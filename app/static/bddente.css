@@ -409,7 +409,11 @@ button.primario:disabled { background: var(--roxo-brd); cursor: not-allowed; }
   padding: 16px;
   background: #fff;
 }
-.painel.repetindo { border-color: var(--roxo); box-shadow: 0 0 0 3px var(--roxo-cl); }
+/* Repetindo e corrigindo sao os dois estados em que o painel deixa de ser "um
+   lancamento novo": em ambos o clique no dente significa outra coisa, e a borda
+   acesa e o que avisa isso antes do clique. */
+.painel.repetindo,
+.painel.corrigindo { border-color: var(--roxo); box-shadow: 0 0 0 3px var(--roxo-cl); }
 .painel-alvo {
   background: var(--roxo-cl);
   color: var(--roxo-esc);
@@ -927,6 +931,12 @@ button.excluir-lancamento:focus-visible {
   background: #FEE2E2;
 }
 .linha-editando td > .acoes-linha { display: inline-flex; margin-left: 12px; }
+
+/* A coluna de acoes de uma linha de tratamento tem "editar" E o "x". Os 34px do
+   .col-acoes eram da epoca em que so havia o "x": com dois, o navegador empilha
+   um sobre o outro. O `nowrap` e o que segura os dois na mesma linha. */
+.col-acoes-linha { text-align: right; white-space: nowrap; width: 1%; }
+.col-acoes-linha .editar-lancamento { margin-right: 4px; }
 
 /* Some do desenho mas nao do leitor de tela: o cabecalho da coluna do "x" nao
    tem texto visivel, e uma coluna sem nome nenhum e uma tabela pior. */

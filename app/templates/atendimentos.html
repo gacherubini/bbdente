@@ -34,7 +34,7 @@
       <thead>
         <tr><th>Dente</th><th>Tratamento</th>
             <th style="text-align:right">Valor</th>
-            <th class="col-acoes"><span class="oculto-visualmente">Ações</span></th></tr>
+            <th class="col-acoes-linha"><span class="oculto-visualmente">Ações</span></th></tr>
       </thead>
       <tbody>
       {# Os `data-*` sao o que o atendimentos.js le para montar a frase da
@@ -52,7 +52,13 @@
             {% endif %}
           </td>
           <td style="text-align:right" class="numero">R$ {{ item.valor | moeda }}</td>
-          <td class="col-acoes">
+          <td class="col-acoes-linha">
+            {# Editar dente, faces ou tratamento exige o desenho do lado, entao o
+               link leva para o odontograma da paciente com o painel ja aberto
+               neste lancamento. Aqui nao cabe: esta tela nao tem odontograma. #}
+            <a class="ligacao"
+               href="/odontograma/{{ grupo.paciente_id }}?editar={{ item.lancamento_id }}"
+               >editar</a>
             <button type="button" class="excluir-lancamento"
                     title="Excluir este tratamento"
                     aria-label="Excluir {{ item.procedimento }}">×</button>
@@ -117,5 +123,6 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ estatico('confirmar.js') }}"></script>
 <script src="{{ estatico('atendimentos.js') }}"></script>
 {% endblock %}

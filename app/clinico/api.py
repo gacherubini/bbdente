@@ -4,13 +4,14 @@ from decimal import Decimal, InvalidOperation
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 # Fronteira de modulo: agenda e paciente so pelas services deles, nunca pelo model.
 from app.agenda.service import vincular_paciente
 from app.auth.models import Usuario
 from app.auth.sessao import usuario_atual
-from app.clinico.models import Odontograma
+from app.clinico.models import Lancamento, Odontograma
 from app.clinico.service import (
     EscopoInvalido,
     ItemAtendimento,
@@ -90,14 +91,20 @@ class ItemPendente(BaseModel):
 class EdicaoDeLancamento(BaseModel):
     """O que da para corrigir num lancamento ja feito.
 
-    Dente, regiao e procedimento ficam de fora de proposito: trocar o alvo nao e
-    correcao, e outro tratamento.
+    O alvo (`procedimento_id`, `escopo`, `dente`, `regioes`) e opcional e anda
+    junto: mandar `escopo` troca o alvo inteiro, nao mandar deixa o alvo como
+    esta. E o que separa o painel, que corrige tudo, da linha do historico, que
+    salva so valor e data — ver `service.editar_lancamento`.
     """
 
     status: StatusLancamento
     data: str | None = None
     valor: str | None = None
     observacao: str | None = None
+    procedimento_id: int | None = None
+    escopo: Escopo | None = None
+    dente: int | None = None
+    regioes: list[Regiao] = Field(default_factory=list)
 
 
 class Previa(BaseModel):
@@ -323,6 +330,10 @@ def corrigir_lancamento(
             data=_para_data(corpo.data),
             valor=_para_decimal(corpo.valor),
             observacao=(corpo.observacao or "").strip() or None,
+            procedimento_id=corpo.procedimento_id,
+            escopo=corpo.escopo,
+            dente=corpo.dente,
+            regioes=corpo.regioes,
         )
     except EscopoInvalido as erro:
         raise HTTPException(status_code=422, detail=str(erro)) from erro
@@ -348,6 +359,17 @@ def apagar_lancamento(
     usuario: Usuario = Depends(usuario_atual),
     sessao: Session = Depends(obter_sessao),
 ):
+    """Exclui (logicamente) e devolve o desenho sem o tratamento.
+
+    O `estado` vai junto pela mesma razao do PATCH: quem exclui a partir do
+    odontograma tem o desenho na frente, e um dente que continua pintado depois
+    de a linha sumir da tabela e a tela dizendo duas coisas diferentes.
+    """
+    odontograma = sessao.scalars(
+        select(Odontograma)
+        .join(Lancamento, Lancamento.odontograma_id == Odontograma.id)
+        .where(Lancamento.id == lancamento_id, Lancamento.clinica_id == usuario.clinica_id)
+    ).first()
     if not excluir_lancamento(
         sessao,
         clinica_id=usuario.clinica_id,
@@ -356,4 +378,12 @@ def apagar_lancamento(
     ):
         raise HTTPException(status_code=404, detail="lancamento nao encontrado")
     sessao.commit()
-    return {"ok": True}
+    return {
+        "ok": True,
+        "estado": estado_do_odontograma(
+            sessao,
+            clinica_id=usuario.clinica_id,
+            paciente_id=odontograma.paciente_id,
+            numero=odontograma.numero,
+        ),
+    }

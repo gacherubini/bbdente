@@ -1,9 +1,15 @@
-/* BDDente — painel de lancamento, ao lado do odontograma.
+/* BDDente — painel de lancamento e de correcao, ao lado do odontograma.
  *
  * A tela SUGERE, nunca impede: o escopo e as regioes vem pre-marcados conforme o
  * habito da dentista (calculado do historico na migracao), e ela pode mudar tudo.
  * Qualquer tratamento pode ir em qualquer regiao — o historico real mostra o
  * mesmo tratamento em escopos diferentes.
+ *
+ * Desde 31/08/2026 este painel tambem CORRIGE. Quando o historico manda um
+ * lancamento por `bddente:corrigir`, os mesmos campos abrem preenchidos com o que
+ * esta gravado e o botao passa a mandar PATCH. E o painel, e nao um formulario na
+ * linha da tabela, porque so aqui existem dente e faces para escolher — e porque
+ * a mesma tela que monta um tratamento e a que sabe remonta-lo.
  */
 (function () {
   "use strict";
@@ -12,13 +18,21 @@
   var catalogo = JSON.parse(document.getElementById("catalogo").textContent);
 
   var porId = {};
+  // De qual categoria e cada tratamento: a correcao abre com o tratamento ja
+  // escolhido, e o <select> de tratamento so mostra os da categoria selecionada.
+  var categoriaDe = {};
   catalogo.forEach(function (categoria) {
-    categoria.procedimentos.forEach(function (p) { porId[p.id] = p; });
+    categoria.procedimentos.forEach(function (p) {
+      porId[p.id] = p;
+      categoriaDe[p.id] = categoria.id;
+    });
   });
 
   var el = function (id) { return document.getElementById(id); };
   var alvo = { dente: null, regiao: null };
   var repetindo = false;
+  // O id do lancamento sendo corrigido, ou null quando o painel esta lancando.
+  var corrigindo = null;
   // A dentista mexeu no VALOR com a propria mao: a sugestao para de escrever ali.
   var valorEditadoAMao = false;
 
@@ -110,6 +124,12 @@
   }
 
   function mostrarAlvo() {
+    // Durante a correcao o alvo pode ser a boca toda, que nao tem dente: sem
+    // isto o painel diria "clique num dente" no meio de uma correcao aberta.
+    if (alvo.dente === null && corrigindo && elEscopo() === "BOCA") {
+      el("painel-alvo").innerHTML = "Corrigindo · <b>boca toda</b>";
+      return;
+    }
     if (alvo.dente === null) {
       el("painel-alvo").textContent = "Clique num dente para começar";
       return;
@@ -118,6 +138,7 @@
     var nomeOclusal = dente && dente.anterior ? "Incisal" : "Oclusal";
     el("rotulo-oclusal").textContent = nomeOclusal;
     el("painel-alvo").innerHTML =
+      (corrigindo ? "Corrigindo · " : "") +
       "Dente <b>" + alvo.dente + "</b>" +
       (elEscopo() === "REGIOES" && alvo.regiao
         ? " · " + (alvo.regiao === "OCLUSAL" ? nomeOclusal : alvo.regiao.toLowerCase())
@@ -131,7 +152,10 @@
     var temRegiao = escopo !== "REGIOES" || regioesMarcadas().length > 0;
     var pronto = Boolean(procedimento) && temAlvo && temRegiao;
     el("painel-lancar").disabled = !pronto;
-    el("painel-repetir").disabled = !Boolean(procedimento);
+    // Repetir em varios dentes e o gesto de lancar em serie; no meio de uma
+    // correcao ele so teria como significar "corrija este mesmo lancamento de
+    // novo", que nao quer dizer nada.
+    el("painel-repetir").disabled = Boolean(corrigindo) || !procedimento;
     el("painel-regioes").hidden = escopo !== "REGIOES";
     destacarNoDesenho();
     sugerirValor();
@@ -157,15 +181,22 @@
   }
 
   // --- categoria filtra os tratamentos ---
-  el("painel-categoria").addEventListener("change", function () {
-    var categoria = this.value;
+
+  /* Deixa visiveis so os tratamentos da categoria. Vive fora do ouvinte porque a
+     correcao tambem precisa dele: abrir um lancamento gravado e escolher a
+     categoria dele e o tratamento dele, nessa ordem. */
+  function filtrarPorCategoria(categoria) {
     var seletor = el("painel-procedimento");
     seletor.disabled = !categoria;
-    seletor.value = "";
     Array.prototype.slice.call(seletor.options).forEach(function (opcao) {
       if (!opcao.value) return;
       opcao.hidden = opcao.getAttribute("data-categoria") !== categoria;
     });
+  }
+
+  el("painel-categoria").addEventListener("change", function () {
+    filtrarPorCategoria(this.value);
+    el("painel-procedimento").value = "";
     atualizarBotoes();
   });
 
@@ -249,20 +280,34 @@
     caixa.hidden = !texto;
   }
 
-  function gravarNoServidor(corpo) {
-    corpo.paciente_id = estadoInicial.paciente.id;
-    corpo.numero_odontograma = estadoInicial.odontograma.numero;
-    return fetch("/api/lancamento", {
-      method: "POST",
+  function pedir(url, metodo, corpo, oQueFalhou) {
+    return fetch(url, {
+      method: metodo,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(corpo)
     })
       .then(function (resposta) {
         return resposta.json().then(function (dados) {
-          if (!resposta.ok) throw new Error(dados.detail || "não foi possível lançar");
+          if (!resposta.ok) throw new Error(dados.detail || oQueFalhou);
           return dados.estado;
         });
       });
+  }
+
+  function gravarNoServidor(corpo) {
+    corpo.paciente_id = estadoInicial.paciente.id;
+    corpo.numero_odontograma = estadoInicial.odontograma.numero;
+    return pedir("/api/lancamento", "POST", corpo, "não foi possível lançar");
+  }
+
+  /* O corpo da correcao e o MESMO do lancamento, e e de proposito: e mandando o
+     alvo inteiro que o servidor entende que ela quer trocar o alvo, e nao so o
+     valor. Quem manda menos que isso — se um dia voltar a haver edicao curta —
+     omite `escopo`, e o alvo fica como esta. */
+  function corrigirNoServidor(corpo) {
+    return pedir(
+      "/api/lancamento/" + corrigindo, "PATCH", corpo, "não foi possível salvar"
+    );
   }
 
   function enviar() {
@@ -282,15 +327,29 @@
     el("painel-lancar").disabled = true;
     mostrarErro("");
 
-    (rascunho ? rascunho.adicionar(corpo) : gravarNoServidor(corpo))
+    // Guardado agora: `pararCorrecao()` limpa `corrigindo` antes de a resposta
+    // terminar de ser tratada, e o aviso ainda precisa saber o que aconteceu.
+    var corrigia = Boolean(corrigindo);
+    var enviando = rascunho
+      ? rascunho.adicionar(corpo)
+      : (corrigia ? corrigirNoServidor(corpo) : gravarNoServidor(corpo));
+
+    enviando
       .then(function (estado) {
         estadoInicial = estado;
         odontograma.atualizar(estado);
         avisar(
-          (rascunho ? "Adicionado ao atendimento: " : "Lançado: ") +
+          (corrigia
+            ? "Corrigido: "
+            : rascunho ? "Adicionado ao atendimento: " : "Lançado: ") +
           descreverLancamento(corpo)
         );
-        if (!repetindo) {
+        // O historico e a conta do dia mudaram; quem sabe redesenhar a tabela e
+        // o historico.js. No rascunho nao ha historico — ainda nao ha paciente.
+        if (!rascunho) document.dispatchEvent(new CustomEvent("bddente:mudou"));
+        if (corrigia) {
+          pararCorrecao();
+        } else if (!repetindo) {
           alvo = { dente: null, regiao: null };
           valorEditadoAMao = false;
           mostrarAlvo();
@@ -306,6 +365,12 @@
   el("painel-lancar").addEventListener("click", enviar);
 
   // --- repetir em outro dente ---
+  function pararRepetir() {
+    repetindo = false;
+    el("painel-dica").hidden = true;
+    el("painel").classList.remove("repetindo");
+  }
+
   el("painel-repetir").addEventListener("click", function () {
     repetindo = true;
     el("painel-dica").hidden = false;
@@ -313,9 +378,100 @@
   });
   el("painel-parar-repetir").addEventListener("click", function (evento) {
     evento.preventDefault();
-    repetindo = false;
-    el("painel-dica").hidden = true;
-    el("painel").classList.remove("repetindo");
+    pararRepetir();
+  });
+
+  // --- corrigir um lancamento gravado ---
+
+  var ROTULO_LANCAR = el("painel-lancar").textContent.trim();
+
+  function foraDoCatalogo(dados) {
+    var opcao = document.createElement("option");
+    opcao.value = String(dados.procedimentoId);
+    opcao.textContent = dados.procedimento + " (fora do catálogo)";
+    opcao.setAttribute("data-fora-do-catalogo", "1");
+    return opcao;
+  }
+
+  /* Abre no painel um lancamento que ja existe, com tudo o que esta gravado.
+
+     Os campos sao preenchidos direto, sem disparar `change`: o ouvinte do
+     tratamento pre-marca o habito da dentista, e aqui isso apagaria as faces
+     REAIS do lancamento e as trocaria por uma sugestao. O que esta no prontuario
+     vence a sugestao — sempre. */
+  function iniciarCorrecao(dados) {
+    corrigindo = dados.lancamento;
+    pararRepetir();
+
+    var categoria = categoriaDe[dados.procedimentoId];
+    if (categoria === undefined) {
+      /* Tratamento inativado sai do catalogo, mas nao sai do prontuario de quem
+         o recebeu. Sem uma opcao para ele o <select> abriria vazio e o botao de
+         salvar ficaria desligado — a correcao seria impossivel justamente na
+         linha antiga, que e onde ela mais faz falta. */
+      var seletor = el("painel-procedimento");
+      seletor.appendChild(foraDoCatalogo(dados));
+      seletor.disabled = false;
+      el("painel-categoria").value = "";
+    } else {
+      el("painel-categoria").value = String(categoria);
+      filtrarPorCategoria(String(categoria));
+    }
+    el("painel-procedimento").value = String(dados.procedimentoId);
+
+    var escopo = document.querySelector(
+      'input[name="escopo"][value="' + dados.escopo + '"]'
+    );
+    if (escopo) escopo.checked = true;
+    marcarSomente(dados.regioes);
+    alvo = { dente: dados.dente, regiao: dados.regioes[0] || null };
+
+    var situacao = document.querySelector(
+      'input[name="status"][value="' + dados.status + '"]'
+    );
+    if (situacao) situacao.checked = true;
+    el("painel-data").value = dados.data;
+    el("painel-valor").value = formatarMoeda(Number(dados.valor || 0));
+    el("painel-observacao").value = dados.observacao;
+    /* O valor gravado e uma decisao que ja foi tomada — desconto, convenio, o que
+       for. A sugestao da tabela de preco nao pode reescrever o prontuario so
+       porque o painel abriu. Se ela trocar de tratamento, a sugestao volta. */
+    valorEditadoAMao = true;
+
+    el("painel").classList.add("corrigindo");
+    el("painel-corrigindo").hidden = false;
+    el("painel-lancar").textContent = "Salvar correção";
+    mostrarErro("");
+    mostrarAlvo();
+    atualizarBotoes();
+  }
+
+  /* Devolve o painel ao estado de lancar. Avisa a tabela para ela tirar o
+     destaque da linha — o painel nao mexe em linha de tabela, e a tabela nao
+     mexe no desenho. */
+  function pararCorrecao() {
+    corrigindo = null;
+    document.querySelectorAll("[data-fora-do-catalogo]").forEach(function (opcao) {
+      opcao.remove();
+    });
+    el("painel").classList.remove("corrigindo");
+    el("painel-corrigindo").hidden = true;
+    el("painel-lancar").textContent = ROTULO_LANCAR;
+    alvo = { dente: null, regiao: null };
+    valorEditadoAMao = false;
+    el("painel-observacao").value = "";
+    mostrarErro("");
+    mostrarAlvo();
+    atualizarBotoes();
+    document.dispatchEvent(new CustomEvent("bddente:correcao-fim"));
+  }
+
+  document.addEventListener("bddente:corrigir", function (evento) {
+    iniciarCorrecao(evento.detail);
+  });
+  el("painel-parar-correcao").addEventListener("click", function (evento) {
+    evento.preventDefault();
+    pararCorrecao();
   });
 
   // O rascunho pinta pelo servidor: entregamos a ele como redesenhar a boca.

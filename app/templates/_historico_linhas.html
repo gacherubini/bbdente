@@ -1,0 +1,63 @@
+{# As linhas do historico, sozinhas — sem a tabela em volta.
+
+   Vive separado porque e o pedaco que a tela troca sem recarregar: depois de
+   lancar, corrigir ou excluir, o `historico.js` pede `/odontograma/{id}/historico`
+   e joga isto dentro do `<tbody>`. Quem soma o dia continua sendo o servidor, aqui
+   embaixo — refazer a conta no navegador seria a mesma regra em dois lugares.
+
+   Uma tabela so, com uma linha de cabecalho por dia — nao uma tabela por dia. O
+   `historico.js` monta a edicao com 6 colunas; quebrar em varias tabelas deixaria
+   a edicao funcionando so no dia mais recente. #}
+{% for grupo in atendimentos %}
+  <tr class="grupo-dia">
+    <td colspan="6">
+      <span class="grupo-data">
+        {{ grupo.data.strftime('%d/%m/%Y') if grupo.data else 'Sem data' }}
+      </span>
+      <span class="grupo-resumo">
+        {{ grupo.quantos }} tratamento{{ '' if grupo.quantos == 1 else 's' }}
+        · R$ {{ grupo.total | moeda }}
+      </span>
+    </td>
+  </tr>
+  {% for item in grupo.itens %}
+  {# Os data-* sao o que o JavaScript le para abrir a correcao sem uma segunda
+     ida ao servidor. O alvo (tratamento, escopo, dente, faces) vai junto porque
+     o painel abre ja preenchido com o que esta gravado. #}
+  <tr data-lancamento="{{ item.lancamento_id }}"
+      data-status="{{ item.status }}"
+      data-valor="{{ item.valor }}"
+      data-data="{{ item.data.isoformat() if item.data else '' }}"
+      data-observacao="{{ item.observacao or '' }}"
+      data-procedimento-id="{{ item.procedimento_id }}"
+      data-procedimento="{{ item.procedimento }}"
+      data-escopo="{{ item.escopo }}"
+      data-dente="{{ item.dente or '' }}"
+      data-regioes="{{ item.regioes | join(',') }}">
+    {# A data fica na linha mesmo repetindo o cabecalho do grupo: e por ela que a
+       dentista ve para onde a correcao mandou o lancamento. #}
+    <td class="col-data">{{ item.data.strftime('%d/%m/%Y') if item.data else '—' }}</td>
+    <td class="col-dente">{{ item.dente or 'boca toda' }}</td>
+    <td class="col-procedimento">
+      {{ item.procedimento }}
+      {% if item.observacao %}
+        <span class="observacao">{{ item.observacao }}</span>
+      {% endif %}
+    </td>
+    <td class="col-situacao">
+      {{ 'Realizado' if item.status == 'REALIZADO' else 'Planejado' }}
+    </td>
+    <td style="text-align:right" class="numero col-valor">
+      R$ {{ item.valor | moeda }}
+    </td>
+    <td class="col-acoes-linha">
+      <button type="button" class="ligacao editar-lancamento">editar</button>
+      <button type="button" class="excluir-lancamento"
+              title="Excluir este tratamento"
+              aria-label="Excluir {{ item.procedimento }}">×</button>
+    </td>
+  </tr>
+  {% endfor %}
+{% else %}
+  <tr><td colspan="6" style="color:var(--texto-fraco)">Nenhum lançamento ainda.</td></tr>
+{% endfor %}

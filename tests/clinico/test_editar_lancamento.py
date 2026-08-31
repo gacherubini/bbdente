@@ -1,8 +1,15 @@
-"""Editar um lancamento ja feito: valor, situacao, data e observacao.
+"""Editar um lancamento ja feito — inclusive o alvo dele.
 
-O que esta tela NAO muda, de proposito: dente, regiao e procedimento. Trocar o
-alvo de um tratamento nao e correcao, e outro tratamento — e para isso ja existe
-excluir (logicamente) e lancar de novo, que deixa os dois na auditoria.
+Ate 31/08/2026 esta edicao mexia so em valor, situacao, data e observacao: dente,
+regiao e procedimento estavam de fora porque "trocar o alvo nao e correcao, e
+outro tratamento". Na pratica corrigir um dente errado custava excluir e lancar
+de novo, e quem estava com a paciente na cadeira nao fazia isso — ficava com o
+dado errado na tela. A decisao caiu; a auditoria continua guardando os dois lados,
+que era o que ela protegia.
+
+O alvo anda junto: quem manda `escopo` esta trocando o alvo inteiro (procedimento,
+dente e faces). Quem nao manda `escopo` esta corrigindo so o resto, e o alvo fica
+como estava — e por isso a linha do historico pode continuar salvando so o valor.
 
 E a data e uma so por vez: um lancamento planejado tem data planejada, um
 realizado tem data realizada. Guardar as duas seria guardar uma contradicao.
@@ -19,7 +26,7 @@ from app.auth.models import Auditoria, Clinica
 from app.auth.service import criar_usuario
 from app.auth.sessao import NOME_COOKIE, assinar
 from app.catalogo.models import Categoria, Procedimento
-from app.clinico.models import Lancamento
+from app.clinico.models import Lancamento, LancamentoRegiao
 from app.clinico.service import excluir_lancamento, lancar
 from app.main import criar_app
 from app.pacientes.models import Paciente
@@ -69,6 +76,36 @@ def corpo(**extra) -> dict:
     dados = {"status": "PLANEJADO", "valor": "180.00", "data": "2026-05-10"}
     dados.update(extra)
     return dados
+
+
+def alvo(**extra) -> dict:
+    """O corpo que o painel manda quando esta corrigindo o alvo inteiro."""
+    dados = corpo(escopo="REGIOES", dente=16, regioes=["MESIAL"])
+    dados.update(extra)
+    return dados
+
+
+def regioes_de(sessao, lancamento) -> set:
+    return set(
+        sessao.scalars(
+            select(LancamentoRegiao.regiao).where(
+                LancamentoRegiao.lancamento_id == lancamento.id
+            )
+        ).all()
+    )
+
+
+def outro_procedimento(sessao, clinica_id: int, nome: str = "Endodontia") -> Procedimento:
+    categoria = sessao.scalars(
+        select(Categoria).where(Categoria.clinica_id == clinica_id)
+    ).first()
+    procedimento = Procedimento(
+        clinica_id=clinica_id, codigo="99", nome=nome, categoria_id=categoria.id,
+        escopo_sugerido=Escopo.DENTE, regioes_sugeridas=[],
+    )
+    sessao.add(procedimento)
+    sessao.flush()
+    return procedimento
 
 
 # --- editar --------------------------------------------------------------------
@@ -219,16 +256,17 @@ def test_lancamento_de_outra_clinica_da_404(sessao, cliente, cenario):
     assert alheio.valor == Decimal("0.00")
 
 
-def test_a_edicao_nao_mexe_em_dente_nem_em_regiao(sessao, cliente, cenario):
-    """Trocar o alvo nao e correcao, e outro tratamento — exclui e lanca de novo."""
+def test_sem_escopo_o_alvo_fica_como_estava(sessao, cliente, cenario):
+    """A linha do historico salva so valor e data; ela nao pode mover o dente."""
     _, _, _, _, lancamento = cenario
-    cliente.patch(
-        f"/api/lancamento/{lancamento.id}",
-        json=corpo(dente=26, escopo="DENTE", regioes=["DISTAL"]),
+    resposta = cliente.patch(
+        f"/api/lancamento/{lancamento.id}", json=corpo(valor="250.00", dente=26)
     )
+    assert resposta.status_code == 200
     sessao.refresh(lancamento)
     assert lancamento.dente == 16
     assert lancamento.escopo is Escopo.REGIOES
+    assert regioes_de(sessao, lancamento) == {Regiao.MESIAL}
 
 
 def test_sem_sessao_e_recusada(sessao, cenario):
@@ -263,3 +301,169 @@ def test_o_lancamento_guardado_continua_no_banco_apos_editar(sessao, cliente, ce
     todos = sessao.scalars(select(Lancamento)).all()
     assert len(todos) == 1
     assert todos[0].id == lancamento.id
+
+
+# --- trocar o alvo: dente, faces e tratamento ----------------------------------
+
+
+def test_trocar_o_dente_move_o_desenho_inteiro(sessao, cliente, cenario):
+    """O 16 fica limpo e o 26 acende: e uma correcao, nao um segundo tratamento."""
+    _, _, _, _, lancamento = cenario
+    resposta = cliente.patch(
+        f"/api/lancamento/{lancamento.id}", json=alvo(dente=26, regioes=["DISTAL"])
+    )
+    assert resposta.status_code == 200
+    dentes = resposta.json()["estado"]["dentes"]
+    assert dentes["26"]["regioes"]["DISTAL"] == "PLANEJADO"
+    assert dentes["16"]["regioes"] == {}
+    sessao.refresh(lancamento)
+    assert lancamento.dente == 26
+
+
+def test_trocar_as_faces_reescreve_as_regioes(sessao, cliente, cenario):
+    """As faces velhas somem: sobram exatamente as que ela deixou marcadas."""
+    _, _, _, _, lancamento = cenario
+    cliente.patch(
+        f"/api/lancamento/{lancamento.id}",
+        json=alvo(regioes=["DISTAL", "VESTIBULAR"]),
+    )
+    sessao.refresh(lancamento)
+    assert regioes_de(sessao, lancamento) == {Regiao.DISTAL, Regiao.VESTIBULAR}
+
+
+def test_trocar_o_tratamento_troca_o_nome_no_historico(sessao, cliente, cenario):
+    clinica, _, paciente, _, lancamento = cenario
+    endodontia = outro_procedimento(sessao, clinica.id)
+    resposta = cliente.patch(
+        f"/api/lancamento/{lancamento.id}", json=alvo(procedimento_id=endodontia.id)
+    )
+    assert resposta.status_code == 200
+    sessao.refresh(lancamento)
+    assert lancamento.procedimento_id == endodontia.id
+    assert "Endodontia" in cliente.get(f"/odontograma/{paciente.id}").text
+
+
+def test_virar_boca_toda_larga_o_dente_e_as_faces(sessao, cliente, cenario):
+    """O banco tem CHECK: escopo BOCA exige dente nulo. As faces vao junto."""
+    _, _, _, _, lancamento = cenario
+    resposta = cliente.patch(
+        f"/api/lancamento/{lancamento.id}",
+        json=alvo(escopo="BOCA", dente=None, regioes=[]),
+    )
+    assert resposta.status_code == 200
+    sessao.refresh(lancamento)
+    assert lancamento.escopo is Escopo.BOCA
+    assert lancamento.dente is None
+    assert regioes_de(sessao, lancamento) == set()
+
+
+def test_virar_dente_inteiro_larga_as_faces(sessao, cliente, cenario):
+    _, _, _, _, lancamento = cenario
+    resposta = cliente.patch(
+        f"/api/lancamento/{lancamento.id}", json=alvo(escopo="DENTE", regioes=[])
+    )
+    assert resposta.status_code == 200
+    sessao.refresh(lancamento)
+    assert regioes_de(sessao, lancamento) == set()
+    assert resposta.json()["estado"]["dentes"]["16"]["dente_inteiro"] == "PLANEJADO"
+
+
+def test_o_alvo_antigo_e_o_novo_ficam_na_auditoria(sessao, cliente, cenario):
+    """E o que sobra de prova de que o 16 mesial um dia foi lancado."""
+    _, _, _, _, lancamento = cenario
+    cliente.patch(
+        f"/api/lancamento/{lancamento.id}", json=alvo(dente=26, regioes=["DISTAL"])
+    )
+    linha = sessao.scalars(
+        select(Auditoria).where(
+            Auditoria.entidade == "lancamento", Auditoria.acao == "ATUALIZAR"
+        )
+    ).one()
+    assert linha.dados_antes["dente"] == 16
+    assert linha.dados_antes["regioes"] == ["MESIAL"]
+    assert linha.dados_depois["dente"] == 26
+    assert linha.dados_depois["regioes"] == ["DISTAL"]
+
+
+# --- o que a troca de alvo recusa ----------------------------------------------
+
+
+def test_tratamento_de_outra_clinica_e_recusado(sessao, cliente, cenario):
+    """Mesma regua do lancar: nao da para puxar procedimento de outra clinica."""
+    _, _, _, _, lancamento = cenario
+    outra = Clinica(nome="Outra")
+    sessao.add(outra)
+    sessao.flush()
+    categoria = Categoria(clinica_id=outra.id, codigo="04", nome="X", ordem=4)
+    sessao.add(categoria)
+    sessao.flush()
+    alheio = Procedimento(
+        clinica_id=outra.id, codigo="21", nome="Alheio", categoria_id=categoria.id,
+        escopo_sugerido=Escopo.DENTE, regioes_sugeridas=[],
+    )
+    sessao.add(alheio)
+    sessao.flush()
+
+    resposta = cliente.patch(
+        f"/api/lancamento/{lancamento.id}", json=alvo(procedimento_id=alheio.id)
+    )
+    assert resposta.status_code == 404
+    sessao.refresh(lancamento)
+    assert lancamento.procedimento_id != alheio.id
+
+
+def test_regioes_sem_nenhuma_face_e_recusado(sessao, cliente, cenario):
+    _, _, _, _, lancamento = cenario
+    resposta = cliente.patch(
+        f"/api/lancamento/{lancamento.id}", json=alvo(regioes=[])
+    )
+    assert resposta.status_code == 422
+    sessao.refresh(lancamento)
+    assert regioes_de(sessao, lancamento) == {Regiao.MESIAL}
+
+
+def test_dente_que_nao_existe_e_recusado(sessao, cliente, cenario):
+    _, _, _, _, lancamento = cenario
+    resposta = cliente.patch(f"/api/lancamento/{lancamento.id}", json=alvo(dente=99))
+    assert resposta.status_code == 422
+    sessao.refresh(lancamento)
+    assert lancamento.dente == 16
+
+
+def test_boca_toda_com_dente_e_recusado(sessao, cliente, cenario):
+    _, _, _, _, lancamento = cenario
+    resposta = cliente.patch(
+        f"/api/lancamento/{lancamento.id}",
+        json=alvo(escopo="BOCA", dente=16, regioes=[]),
+    )
+    assert resposta.status_code == 422
+
+
+def test_a_troca_de_alvo_nao_cria_um_segundo_lancamento(sessao, cliente, cenario):
+    _, _, _, _, lancamento = cenario
+    cliente.patch(
+        f"/api/lancamento/{lancamento.id}", json=alvo(dente=26, regioes=["DISTAL"])
+    )
+    todos = sessao.scalars(select(Lancamento)).all()
+    assert len(todos) == 1
+    assert todos[0].id == lancamento.id
+
+
+# --- a linha do historico leva o alvo para o painel ----------------------------
+
+
+def test_a_linha_do_historico_carrega_o_alvo_para_o_painel(cliente, cenario):
+    """Sem isso o painel nao tem como abrir ja preenchido com o que esta gravado."""
+    _, _, paciente, restauracao, _ = cenario
+    html = cliente.get(f"/odontograma/{paciente.id}").text
+    assert f'data-procedimento-id="{restauracao.id}"' in html
+    assert 'data-escopo="REGIOES"' in html
+    assert 'data-regioes="MESIAL"' in html
+    assert 'data-dente="16"' in html
+
+
+def test_o_historico_tem_como_excluir_a_linha(cliente, cenario):
+    """O `x` existia so na tela do dia; quem esta no odontograma tambem precisa."""
+    _, _, paciente, *_ = cenario
+    html = cliente.get(f"/odontograma/{paciente.id}").text
+    assert "excluir-lancamento" in html

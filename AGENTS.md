@@ -18,6 +18,12 @@ Violar qualquer uma delas reprova o trabalho em review, mesmo que os testes pass
    credencial** — e ela vive na Evolution, não aqui. A regra protege dado de
    paciente; credencial revogada não é dado de paciente, é lixo que só serve para
    vazar. O fato vai para a `auditoria`; o conteúdo, não.
+   *Exceção anotada:* corrigir o alvo de um lançamento **apaga as linhas de
+   `lancamento_regiao`** dele e escreve as novas. Aquela tabela não é registro de
+   paciente, é a lista de faces DESTE lançamento: trocar mesial por distal tem de
+   deixar só distal, e uma linha marcada como excluída ali continuaria pintando o
+   dente — o contrário de corrigir. O lançamento em si continua com exclusão
+   lógica, e o alvo antigo fica inteiro na `auditoria`.
 
 2. **Fronteira de módulo.** Um módulo só acessa outro pela `service.py` dele. Nunca
    importe `models` de outro módulo, nunca faça `JOIN` em tabela de outro módulo.
@@ -168,7 +174,7 @@ nunca entra no repositório.
 Enquanto estiver mexendo em qualquer coisa que não seja migração, rode
 
 ```bash
-.venv/bin/pytest -q --ignore=tests/migracao     # ~30 s, 941 testes
+.venv/bin/pytest -q --ignore=tests/migracao     # ~47 s, 992 testes
 ```
 
 e deixe a suíte inteira para antes do commit. **Uma rodada só por vez:** duas
@@ -196,7 +202,8 @@ esquecimento.
 | entender o domínio | `docs/superpowers/specs/2026-08-25-bddente-mvp-design.md` |
 | mexer no odontograma | `app/shared/dentes.py`, depois `app/static/odontograma.js` |
 | mexer no atendimento sem paciente | `app/static/rascunho.js` e `app/clinico/api.py` |
-| mexer em lançamento | `app/clinico/service.py` (`lancar`, `estado_do_odontograma`) |
+| mexer em lançamento | `app/clinico/service.py` (`lancar`, `editar_lancamento`, `estado_do_odontograma`) |
+| mexer na correção de um lançamento | `app/static/painel.js` (o painel corrige) e `app/static/historico.js` (a tabela) |
 | mexer na busca de paciente | `app/pacientes/service.py` (`buscar`) |
 | mexer no financeiro | `app/financeiro/service.py`, depois `app/static/graficos.js` |
 | mexer na agenda | `app/agenda/service.py` (`grade`, `marcar`), depois `app/templates/agenda_semana.html` |

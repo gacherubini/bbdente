@@ -84,6 +84,13 @@
   <button type="button" class="secundario" id="painel-repetir" disabled>
     Repetir em outro dente
   </button>
+  {# So aparece durante uma correcao. O caminho de volta precisa estar visivel:
+     sem ele, quem clicou em "editar" por engano nao tem como sair sem recarregar
+     a pagina — e recarregar e exatamente o que esta tela deixou de exigir. #}
+  <p class="painel-dica" id="painel-corrigindo" hidden>
+    Corrigindo um lançamento já gravado. Clique noutro dente ou noutra face para
+    mudar o alvo. <a href="#" id="painel-parar-correcao">cancelar</a>
+  </p>
   <p class="painel-dica" id="painel-dica" hidden>
     Modo repetir ligado — cada clique no odontograma
     {{ 'acrescenta' if rascunho else 'lança' }} este mesmo tratamento.

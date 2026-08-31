@@ -142,6 +142,36 @@ def tela(
     )
 
 
+@router.get("/odontograma/{paciente_id}/historico", response_class=HTMLResponse)
+def historico_do_paciente(
+    request: Request,
+    paciente_id: int,
+    usuario: Usuario = Depends(usuario_atual),
+    sessao: Session = Depends(obter_sessao),
+):
+    """So as linhas do historico, para a tela trocar sem recarregar.
+
+    Existe porque lancar um tratamento mudava o desenho e mais nada: a linha nova
+    so aparecia depois de um F5, e o cabecalho do dia continuava contando o que
+    havia antes. Devolver o pedaco pronto — e nao os numeros para o JavaScript
+    somar — mantem a contagem num lugar so.
+    """
+    paciente = obter_paciente(
+        sessao, clinica_id=usuario.clinica_id, paciente_id=paciente_id
+    )
+    if paciente is None:
+        raise HTTPException(status_code=404, detail="paciente nao encontrado")
+    return templates.TemplateResponse(
+        request,
+        "_historico_linhas.html",
+        {
+            "atendimentos": atendimentos_do_paciente(
+                sessao, clinica_id=usuario.clinica_id, paciente_id=paciente_id
+            )
+        },
+    )
+
+
 DIAS = [
     "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira",
     "sexta-feira", "sábado", "domingo",

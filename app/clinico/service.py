@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.auth.auditoria import registrar
@@ -489,6 +489,16 @@ def historico(
         .limit(limite)
     ).all()
 
+    # As faces numa consulta so, e nao uma por linha: sao ate 200 lancamentos, e
+    # um SELECT por linha derruba o historico de quem tem 30 anos de tratamento.
+    faces: dict[int, list[str]] = defaultdict(list)
+    ids = [lancamento.id for lancamento, _ in linhas]
+    if ids:
+        for ligacao in sessao.scalars(
+            select(LancamentoRegiao).where(LancamentoRegiao.lancamento_id.in_(ids))
+        ):
+            faces[ligacao.lancamento_id].append(ligacao.regiao.value)
+
     itens = [
         {
             "lancamento_id": lancamento.id,
@@ -496,6 +506,11 @@ def historico(
             "dente": lancamento.dente,
             "escopo": lancamento.escopo.value,
             "procedimento": nome,
+            # O painel abre a correcao ja preenchida com o alvo gravado, e para
+            # isso precisa do id do tratamento e das faces — o nome nao serve
+            # para marcar um <select>.
+            "procedimento_id": lancamento.procedimento_id,
+            "regioes": sorted(faces[lancamento.id]),
             "status": lancamento.status.value,
             "valor": str(lancamento.valor),
             "observacao": lancamento.observacao,
@@ -755,6 +770,17 @@ def responder(
     return gravadas
 
 
+def _regioes_de(sessao: Session, lancamento_id: int) -> list[str]:
+    return sorted(
+        regiao.value
+        for regiao in sessao.scalars(
+            select(LancamentoRegiao.regiao).where(
+                LancamentoRegiao.lancamento_id == lancamento_id
+            )
+        )
+    )
+
+
 def editar_lancamento(
     sessao: Session,
     *,
@@ -765,12 +791,25 @@ def editar_lancamento(
     data: date | None = None,
     valor: Decimal | None = None,
     observacao: str | None = None,
+    procedimento_id: int | None = None,
+    escopo: Escopo | None = None,
+    dente: int | None = None,
+    regioes: "list[Regiao] | tuple[Regiao, ...]" = (),
 ) -> Lancamento:
-    """Corrige um lancamento existente: situacao, data, valor e observacao.
+    """Corrige um lancamento existente — situacao, data, valor, observacao e alvo.
 
-    NAO mexe em dente, regiao nem procedimento. Trocar o alvo de um tratamento
-    nao e correcao, e outro tratamento — para isso existe excluir (logicamente) e
-    lancar de novo, que deixa os dois lados na auditoria.
+    **O alvo anda junto.** Quem manda `escopo` esta trocando o alvo inteiro:
+    procedimento, dente e faces sao substituidos pelo que veio, e o que nao veio
+    junto vira o que estava (procedimento) ou nada (faces). Quem NAO manda
+    `escopo` esta corrigindo so o resto, e o alvo fica intocado — e por isso a
+    linha do historico continua podendo salvar so o valor sem mover o dente.
+
+    Ate 31/08/2026 dente, regiao e procedimento nao eram editaveis, com o
+    argumento de que "trocar o alvo nao e correcao, e outro tratamento". O
+    argumento nao sobreviveu ao uso: dente errado se corrige com a paciente na
+    cadeira, e o caminho oferecido — excluir e lancar de novo — custava caro
+    demais para ser tomado. O que aquela regra protegia era a rastreabilidade, e
+    isso quem garante e a `auditoria`, que guarda o alvo velho e o novo.
 
     A data e uma so por vez: planejado guarda `data_planejada`, realizado guarda
     `data_realizada`. Guardar as duas seria guardar uma contradicao.
@@ -788,6 +827,16 @@ def editar_lancamento(
     if lancamento is None:
         raise LookupError("lancamento nao encontrado")
 
+    trocando_alvo = escopo is not None
+    if trocando_alvo:
+        regioes = list(regioes)
+        _validar(escopo, dente, regioes)
+        if procedimento_id is None:
+            procedimento_id = lancamento.procedimento_id
+        # Mesma regua do `lancar_atendimento`: procedimento de outra clinica nao
+        # entra. Levanta LookupError, que a rota traduz em 404.
+        _nomes_de_procedimento(sessao, clinica_id=clinica_id, ids=[procedimento_id])
+
     antes = {
         "status": lancamento.status.value,
         "valor": str(lancamento.valor),
@@ -797,6 +846,10 @@ def editar_lancamento(
         if (lancamento.data_realizada or lancamento.data_planejada)
         else None,
         "observacao": lancamento.observacao,
+        "procedimento_id": lancamento.procedimento_id,
+        "escopo": lancamento.escopo.value,
+        "dente": lancamento.dente,
+        "regioes": _regioes_de(sessao, lancamento.id),
     }
 
     realizado = status is StatusLancamento.REALIZADO
@@ -806,6 +859,27 @@ def editar_lancamento(
     if valor is not None:
         lancamento.valor = valor.quantize(Decimal("0.01"))
     lancamento.observacao = observacao
+
+    if trocando_alvo:
+        lancamento.procedimento_id = procedimento_id
+        lancamento.escopo = escopo
+        lancamento.dente = dente
+        # Excecao anotada a regra do "nunca DELETE": `lancamento_regiao` nao e
+        # registro de paciente, e a lista de faces DESTE lancamento. Trocar o
+        # alvo de mesial para distal tem de deixar so distal — uma linha marcada
+        # como excluida ali continuaria pintando o dente, que e o contrario de
+        # corrigir. O lancamento em si continua com exclusao logica, e o alvo
+        # velho fica inteiro na `auditoria` logo abaixo.
+        sessao.execute(
+            delete(LancamentoRegiao).where(
+                LancamentoRegiao.lancamento_id == lancamento.id
+            )
+        )
+        for regiao in regioes:
+            sessao.add(LancamentoRegiao(lancamento_id=lancamento.id, regiao=regiao))
+        sessao.flush()
+        sessao.expire(lancamento, ["regioes"])
+
     sessao.flush()
 
     registrar(
@@ -821,6 +895,10 @@ def editar_lancamento(
             "valor": str(lancamento.valor),
             "data": data.isoformat() if data else None,
             "observacao": observacao,
+            "procedimento_id": lancamento.procedimento_id,
+            "escopo": lancamento.escopo.value,
+            "dente": lancamento.dente,
+            "regioes": _regioes_de(sessao, lancamento.id),
         },
     )
     return lancamento

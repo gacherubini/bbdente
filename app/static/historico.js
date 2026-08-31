@@ -1,160 +1,125 @@
-/* BDDente — corrigir um lancamento direto na linha do historico.
+/* BDDente — a tabela do historico do paciente.
  *
- * Corrige situacao, data, valor e observacao. Dente, regiao e procedimento nao
- * entram: trocar o alvo nao e correcao, e outro tratamento.
+ * Ela faz duas coisas e nao faz uma terceira:
  *
- * Quando o servidor devolve o desenho novo, este arquivo avisa a pagina por um
- * evento em vez de mexer no odontograma direto — quem sabe desenhar e o
- * painel.js, e duas mãos no mesmo SVG e conflito esperando acontecer.
+ * 1. **Se mantem atualizada.** Depois de lancar, corrigir ou excluir, pede as
+ *    linhas de volta ao servidor (`/odontograma/{id}/historico`) e troca o
+ *    `<tbody>`. Ate 31/08/2026 nao fazia isso: a linha nova so aparecia depois de
+ *    um F5, e o cabecalho do dia continuava contando o que havia antes. Quem
+ *    soma continua sendo o servidor — refazer a conta aqui seria a mesma regra em
+ *    dois lugares, e um dia elas discordam.
+ *
+ * 2. **Manda corrigir.** O clique em "editar" nao abre formulario nenhum aqui:
+ *    entrega o lancamento ao painel da direita, que ja sabe montar tratamento,
+ *    dente e faces. Antes havia um formulario na propria linha, e ele so
+ *    alcancava situacao, data, valor e observacao — corrigir o dente errado
+ *    exigia excluir e lancar de novo.
+ *
+ * O que ela NAO faz e desenhar: o odontograma e do `painel.js`, e duas maos no
+ * mesmo SVG e conflito esperando acontecer.
  */
 (function () {
   "use strict";
 
   var tabela = document.querySelector(".titulo-historico + table");
-  if (!tabela) return;
+  var linhas = document.getElementById("historico-linhas");
+  if (!tabela || !linhas) return;
 
-  var editando = null;
+  var COLUNAS = 6;
+  var estado = JSON.parse(document.getElementById("estado-inicial").textContent);
+  var paciente = estado.paciente.id;
+  var emCorrecao = null;
 
-  function moeda(bruto) {
-    var numero = Number(bruto);
-    if (!isFinite(numero)) return bruto;
-    return numero.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/, ".");
+  function destacar(linha) {
+    if (emCorrecao) emCorrecao.classList.remove("linha-editando");
+    emCorrecao = linha;
+    if (linha) linha.classList.add("linha-editando");
   }
 
-  function fechar() {
-    if (!editando) return;
-    editando.linha.parentNode.removeChild(editando.formulario);
-    editando.linha.hidden = false;
-    editando = null;
-  }
-
-  function celula(conteudo, alinhar) {
-    var td = document.createElement("td");
-    if (alinhar) td.style.textAlign = alinhar;
-    td.appendChild(conteudo);
-    return td;
-  }
-
-  function campo(tipo, valor, extras) {
-    var entrada = document.createElement("input");
-    entrada.type = tipo;
-    entrada.value = valor || "";
-    Object.keys(extras || {}).forEach(function (chave) {
-      entrada.setAttribute(chave, extras[chave]);
-    });
-    return entrada;
-  }
-
-  function abrir(linha) {
-    fechar();
-
-    var dados = linha.dataset;
-    var formulario = document.createElement("tr");
-    formulario.className = "linha-editando";
-
-    var data = campo("date", dados.data);
-    var situacao = document.createElement("select");
-    [["PLANEJADO", "Planejado"], ["REALIZADO", "Realizado"]].forEach(function (par) {
-      var opcao = document.createElement("option");
-      opcao.value = par[0];
-      opcao.textContent = par[1];
-      if (par[0] === dados.status) opcao.selected = true;
-      situacao.appendChild(opcao);
-    });
-    var valor = campo("text", moeda(dados.valor), { inputmode: "decimal" });
-    var observacao = campo("text", dados.observacao, { placeholder: "observação" });
-
-    var acoes = document.createElement("div");
-    acoes.className = "acoes-linha";
-    var salvar = document.createElement("button");
-    salvar.type = "button";
-    salvar.className = "primario";
-    salvar.textContent = "Salvar";
-    var cancelar = document.createElement("button");
-    cancelar.type = "button";
-    cancelar.className = "ligacao";
-    cancelar.textContent = "cancelar";
-    acoes.appendChild(salvar);
-    acoes.appendChild(cancelar);
-
-    formulario.appendChild(celula(data));
-    formulario.appendChild(celula(observacao));
-    var vazia = document.createElement("td");
-    formulario.appendChild(vazia);
-    formulario.appendChild(celula(situacao));
-    formulario.appendChild(celula(valor, "right"));
-    formulario.appendChild(celula(acoes, "right"));
-
-    var erro = document.createElement("tr");
-    erro.className = "linha-erro";
-    erro.hidden = true;
-    var celulaErro = document.createElement("td");
-    celulaErro.colSpan = 6;
-    erro.appendChild(celulaErro);
-
-    linha.hidden = true;
-    linha.parentNode.insertBefore(formulario, linha.nextSibling);
-    linha.parentNode.insertBefore(erro, formulario.nextSibling);
-    editando = { linha: linha, formulario: formulario };
-    data.focus();
-
-    cancelar.addEventListener("click", function () {
-      erro.parentNode.removeChild(erro);
-      fechar();
-    });
-
-    salvar.addEventListener("click", function () {
-      salvar.disabled = true;
-      celulaErro.textContent = "";
-      erro.hidden = true;
-
-      var limpo = valor.value.trim().replace(/\./g, "").replace(",", ".");
-      fetch("/api/lancamento/" + linha.dataset.lancamento, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status: situacao.value,
-          data: data.value || null,
-          valor: limpo || "0",
-          observacao: observacao.value.trim() || null
-        })
+  function recarregar() {
+    return fetch("/odontograma/" + paciente + "/historico")
+      .then(function (resposta) {
+        if (!resposta.ok) throw new Error("não foi possível recarregar o histórico");
+        return resposta.text();
       })
-        .then(function (resposta) {
-          return resposta.json().then(function (corpo) {
-            if (!resposta.ok) throw new Error(corpo.detail || "não foi possível salvar");
-            return corpo;
-          });
-        })
-        .then(function (corpo) {
-          document.dispatchEvent(
-            new CustomEvent("bddente:estado", { detail: corpo.estado })
-          );
-          // A linha da tabela e reescrita a partir do que foi salvo; recarregar a
-          // pagina inteira perderia a rolagem no meio do historico.
-          linha.dataset.status = situacao.value;
-          linha.dataset.valor = limpo || "0";
-          linha.dataset.data = data.value || "";
-          linha.dataset.observacao = observacao.value.trim();
-          linha.querySelector(".col-data").textContent = data.value
-            ? data.value.split("-").reverse().join("/")
-            : "—";
-          linha.querySelector(".col-situacao").textContent =
-            situacao.value === "REALIZADO" ? "Realizado" : "Planejado";
-          linha.querySelector(".col-valor").textContent = "R$ " + moeda(limpo || "0");
-          erro.parentNode.removeChild(erro);
-          fechar();
-        })
-        .catch(function (falha) {
-          celulaErro.textContent = falha.message;
-          erro.hidden = false;
-          salvar.disabled = false;
-        });
-    });
+      .then(function (html) {
+        // A troca e do conteudo, nunca do <tbody>: os cliques sao ouvidos na
+        // tabela, e trocar o elemento levaria os ouvintes junto.
+        linhas.innerHTML = html;
+        emCorrecao = null;
+      })
+      .catch(function () {
+        /* Recarregar o historico e conforto; o lancamento ja esta gravado. Um
+           erro aqui nao pode virar um alarme que faz duvidar do que foi salvo —
+           a linha aparece no proximo carregamento da tela. */
+      });
+  }
+
+  /* Entrega o lancamento ao painel. Os data-* trazem tudo: nao ha segunda ida
+     ao servidor so para saber o que ja esta escrito na propria linha. */
+  function corrigir(linha) {
+    var dados = linha.dataset;
+    destacar(linha);
+    document.dispatchEvent(
+      new CustomEvent("bddente:corrigir", {
+        detail: {
+          lancamento: dados.lancamento,
+          procedimentoId: Number(dados.procedimentoId),
+          procedimento: dados.procedimento || "tratamento",
+          escopo: dados.escopo,
+          dente: dados.dente ? Number(dados.dente) : null,
+          regioes: dados.regioes ? dados.regioes.split(",") : [],
+          status: dados.status,
+          data: dados.data || "",
+          valor: dados.valor,
+          observacao: dados.observacao || ""
+        }
+      })
+    );
   }
 
   tabela.addEventListener("click", function (evento) {
-    var botao = evento.target.closest(".editar-lancamento");
-    if (!botao) return;
-    abrir(botao.closest("tr"));
+    var editar = evento.target.closest(".editar-lancamento");
+    if (editar) {
+      corrigir(editar.closest("tr"));
+      return;
+    }
+    var excluir = evento.target.closest(".excluir-lancamento");
+    if (excluir) {
+      window.Confirmar.excluirLancamento(excluir.closest("tr"), {
+        colunas: COLUNAS,
+        aoConcluir: function (resposta) {
+          // Excluir tira a cor do dente e muda a conta do dia: as duas coisas
+          // precisam acontecer, e cada uma tem seu dono. O desenho e do painel.
+          if (resposta && resposta.estado) {
+            document.dispatchEvent(
+              new CustomEvent("bddente:estado", { detail: resposta.estado })
+            );
+          }
+          recarregar();
+        }
+      });
+    }
   });
+
+  // O painel avisa quando gravou (lancamento novo ou correcao) e quando a
+  // correcao acabou. A tabela responde ao primeiro; ao segundo, so apaga o
+  // destaque da linha.
+  document.addEventListener("bddente:mudou", recarregar);
+  document.addEventListener("bddente:correcao-fim", function () {
+    destacar(null);
+  });
+
+  /* `?editar=123` vem do "editar" da tela do dia, que nao tem odontograma ao
+     lado para corrigir dente e tratamento. Chegar aqui e abrir a correcao ja
+     aberta naquele lancamento. Id que nao esta na tela nao e erro — pode ser de
+     um dia que o limite do historico nao alcanca — entao a tela abre normal. */
+  var pedido = new URLSearchParams(window.location.search).get("editar");
+  if (pedido) {
+    var linha = linhas.querySelector('tr[data-lancamento="' + pedido + '"]');
+    if (linha) {
+      corrigir(linha);
+      linha.scrollIntoView({ block: "center" });
+    }
+  }
 })();
