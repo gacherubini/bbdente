@@ -73,6 +73,9 @@
          nao foi pago — sao dois numeros diferentes, e ler um pelo outro
          daria uma ideia errada do consultorio. #}
       <th style="text-align:right">A fazer</th>
+      {# Sem rotulo: a coluna e de acao, e "Excluir" escrito no cabecalho de uma
+         lista de 5.561 pessoas anuncia a coisa errada. #}
+      <th class="col-excluir"><span class="oculto-visual">Excluir</span></th>
     </tr>
   </thead>
   <tbody>
@@ -103,9 +106,18 @@
       <td style="text-align:right" class="numero">
         {% if linha.em_aberto > 0 %}R$ {{ linha.em_aberto | moeda }}{% else %}—{% endif %}
       </td>
+      {# `stopPropagation` porque a <tr> inteira leva ao odontograma: sem ele o
+         clique aqui navegaria para la, e o atalho pareceria quebrado sem dar
+         erro nenhum. Nao exclui — abre a tela que mostra o que a ficha tem. #}
+      <td class="col-excluir">
+        <a class="excluir-linha" title="Excluir cadastro"
+           aria-label="Excluir cadastro de {{ linha.nome }}"
+           href="/pacientes/{{ linha.id }}/excluir"
+           onclick="event.stopPropagation()">×</a>
+      </td>
     </tr>
   {% else %}
-    <tr><td colspan="7" style="color:var(--texto-fraco)">Nenhum paciente encontrado.</td></tr>
+    <tr><td colspan="8" style="color:var(--texto-fraco)">Nenhum paciente encontrado.</td></tr>
   {% endfor %}
   </tbody>
 </table>

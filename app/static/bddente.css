@@ -1539,13 +1539,51 @@ button.destrutivo:hover { background: #991B1B; }
   padding-top: 14px;
   border-top: 1px solid var(--borda);
 }
-a.link-excluir {
-  color: var(--texto-fraco);
-  font-size: 12.5px;
+a.botao-destrutivo {
+  display: inline-block;
+  background: #FEE2E2;
+  color: #B91C1C;
+  border: 1px solid #FCA5A5;
+  border-radius: var(--raio);
+  padding: 9px 15px;
+  font-size: 13.5px;
   font-weight: 600;
   text-decoration: none;
 }
-a.link-excluir:hover { color: #B91C1C; }
+a.botao-destrutivo:hover { background: #B91C1C; color: #fff; border-color: #B91C1C; }
+
+/* O x no fim da linha da lista. Mesma logica do .excluir-lancamento: sempre
+   visivel, fraco no repouso, vermelho debaixo do cursor. Escondido ate o hover
+   e invisivel no toque, onde hover nao existe. */
+.col-excluir { width: 30px; text-align: right; }
+a.excluir-linha {
+  display: inline-block;
+  color: var(--texto-fraco);
+  font-size: 17px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 6px;
+  text-decoration: none;
+  /* Mais forte que o .excluir-lancamento (.45) de proposito. Aquele fica numa
+     tabela pequena de um paciente so; este tem de ser achado por quem varre uma
+     lista. E o clique aqui e barato: abre a tela de confirmacao, nao exclui —
+     entao errar o alvo nao custa nada, e sumir custa a funcionalidade. */
+  opacity: .6;
+}
+tr:hover a.excluir-linha { opacity: 1; }
+a.excluir-linha:hover,
+a.excluir-linha:focus-visible { opacity: 1; color: #B91C1C; background: #FEE2E2; }
+
+/* Rotulo que so o leitor de tela le: a coluna nao tem titulo visivel de
+   proposito, mas cabecalho vazio deixa a tabela sem sentido para quem navega
+   por audio. */
+.oculto-visual {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 .nota-exclusao {
   color: var(--texto-fraco);
   font-size: 12.5px;

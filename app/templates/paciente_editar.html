@@ -85,12 +85,19 @@
   </div>
 </form>
 
-{# Link, e nao botao, e no rodape: excluir e o vizinho perigoso do "Salvar", e
-   um botao aqui seria apertado por engano por quem so veio corrigir telefone.
-   Sem confirm() do navegador — a tela do outro lado mostra os numeros. #}
+{# Botao de verdade, fora do cartao e depois de uma borda.
+
+   A primeira versao disto era um link cinza, pela ideia de que acao destrutiva
+   perto do "Salvar" seria apertada por engano. Deu errado do outro lado: quem
+   PROCURAVA a acao nao a encontrava. A separacao resolve o tropeco; apagar o
+   botao nao era necessario para isso. Sem confirm() do navegador — a tela do
+   outro lado mostra o que esta pendurado na ficha. #}
 <div class="rodape-perigoso">
-  <a class="link-excluir" href="/pacientes/{{ paciente.id }}/excluir">
-    Excluir este cadastro
+  <a class="botao-destrutivo" href="/pacientes/{{ paciente.id }}/excluir">
+    Excluir cadastro
   </a>
+  <p class="nota-exclusao">
+    Sai da lista e das buscas. Nada é apagado do banco, e dá para desfazer.
+  </p>
 </div>
 {% endblock %}

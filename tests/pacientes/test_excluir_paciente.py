@@ -424,3 +424,58 @@ def test_a_grade_da_semana_nao_quebra_com_paciente_excluido(sessao, cliente, cen
     )
     cartoes = [c for dia in grade.cartoes.values() for c in dia]
     assert [c.nome for c in cartoes] == ["AVANI GURSKI"]
+
+
+# --------------------------------------------------------------------------
+# Onde a acao fica na tela
+#
+# A primeira versao pos o caminho para excluir num link cinza no rodape da
+# ficha, tres niveis fundo. O proprio dono do sistema, que sabia que a
+# funcionalidade existia, nao achou. Discreto virou escondido, e uma acao que
+# ninguem encontra e uma acao que nao existe. Estes testes seguram as duas
+# entradas que resolveram isso.
+
+
+def test_a_ficha_tem_botao_de_excluir_e_nao_so_um_link(sessao, cliente, cenario):
+    _, _, _, duplicata, _ = cenario
+
+    html = cliente.get(f"/pacientes/{duplicata.id}/editar").text
+
+    assert f'href="/pacientes/{duplicata.id}/excluir"' in html
+    # Botao, nao link cinza: a classe e o que da a ele peso visual de acao.
+    assert "botao-destrutivo" in html
+
+
+def test_a_lista_tem_um_atalho_de_excluir_por_linha(sessao, cliente, cenario):
+    """O caso real e limpar duplicata a partir da busca. Obrigar a passar pelo
+    odontograma e pela ficha para cada uma das quatro copias e o caminho que
+    fez ninguem usar."""
+    _, _, boa, duplicata, _ = cenario
+
+    html = cliente.get("/pacientes?q=AVANI&filtro=todos").text
+
+    assert f'/pacientes/{boa.id}/excluir' in html
+    assert f'/pacientes/{duplicata.id}/excluir' in html
+
+
+def test_o_atalho_da_lista_nao_dispara_o_clique_da_linha(sessao, cliente, cenario):
+    """A `<tr>` inteira tem `onclick` que leva ao odontograma. Sem parar a
+    propagacao, clicar no atalho navegaria para o odontograma em vez da tela de
+    exclusao — e o botao pareceria quebrado sem dar erro nenhum."""
+    _, _, _, duplicata, _ = cenario
+
+    html = cliente.get("/pacientes?q=AVANI&filtro=todos").text
+    linha = html.split(f'/pacientes/{duplicata.id}/excluir')[0].rsplit("<tr", 1)[1]
+
+    assert "stopPropagation" in html
+    assert "onclick" in linha  # a linha continua clicavel
+
+
+def test_a_linha_de_lista_vazia_cobre_todas_as_colunas(sessao, cliente, cenario):
+    """Colspan que nao acompanha a coluna nova e o erro classico: a tabela fica
+    torta so quando a busca nao acha nada, que e quando ninguem olha."""
+    html = cliente.get("/pacientes?q=NAOEXISTENADACOMESSENOME&filtro=todos").text
+    colunas = html.count("<th")
+
+    if "Nenhum paciente encontrado." in html:
+        assert f'colspan="{colunas}"' in html
