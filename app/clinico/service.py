@@ -36,6 +36,28 @@ from app.shared.dentes import (
 from app.shared.tipos import Escopo, Regiao, StatusLancamento
 
 
+def contar_lancamentos_do_paciente(
+    sessao: Session, *, clinica_id: int, paciente_id: int
+) -> int:
+    """Quantos tratamentos vivos esta pessoa tem no prontuario.
+
+    Existe para a frase de aviso da exclusao do cadastro. Conta no banco de
+    proposito: `lancamentos_do_paciente` monta o historico inteiro, e carregar
+    30 anos de tratamento para descobrir o TAMANHO deles seria varrer a tabela
+    por causa de um "tem certeza?".
+    """
+    return sessao.scalars(
+        select(func.count())
+        .select_from(Lancamento)
+        .join(Odontograma, Odontograma.id == Lancamento.odontograma_id)
+        .where(
+            Odontograma.paciente_id == paciente_id,
+            Lancamento.clinica_id == clinica_id,
+            Lancamento.excluido_em.is_(None),
+        )
+    ).one()
+
+
 def contar_pacientes_com_pendencia(sessao: Session, *, clinica_id: int) -> int:
     """Quantos pacientes tem ao menos um tratamento planejado. Uma agregacao so."""
     return sessao.scalars(

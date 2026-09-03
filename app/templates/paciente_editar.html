@@ -84,4 +84,13 @@
     <button type="submit" name="aceita" value="nao_perguntado">Não perguntei</button>
   </div>
 </form>
+
+{# Link, e nao botao, e no rodape: excluir e o vizinho perigoso do "Salvar", e
+   um botao aqui seria apertado por engano por quem so veio corrigir telefone.
+   Sem confirm() do navegador — a tela do outro lado mostra os numeros. #}
+<div class="rodape-perigoso">
+  <a class="link-excluir" href="/pacientes/{{ paciente.id }}/excluir">
+    Excluir este cadastro
+  </a>
+</div>
 {% endblock %}

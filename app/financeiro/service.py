@@ -278,6 +278,31 @@ def a_receber(
     ]
 
 
+def contar_em_aberto_do_paciente(
+    sessao: Session, *, clinica_id: int, paciente_id: int
+) -> int:
+    """Quantas parcelas desta pessoa ainda tem saldo a receber.
+
+    Mesma peneira do `a_receber`, e pelo mesmo motivo: a linha `substituida` e
+    um degrau do carne do Dentalis, ja cobrado na linha seguinte. Conta-la aqui
+    diria "sete dividas" para quem tem uma.
+
+    Sem o corte por `desde` que a lista de cobranca usa: la o objetivo e cobrar,
+    e divida de 1996 nao se cobra; aqui e avisar quem esta prestes a excluir o
+    cadastro, e divida velha continua sendo divida na ficha.
+    """
+    return sessao.scalars(
+        select(func.count())
+        .select_from(Parcela)
+        .where(
+            *_vivas(clinica_id),
+            Parcela.paciente_id == paciente_id,
+            Parcela.substituida.is_(False),
+            Parcela.valor_cobrado > Parcela.valor_pago,
+        )
+    ).one()
+
+
 def anos_com_movimento(sessao: Session, *, clinica_id: int) -> list[int]:
     """Os anos que tem dinheiro registrado, do mais recente para o mais antigo.
 

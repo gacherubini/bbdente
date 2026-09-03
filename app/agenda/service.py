@@ -269,6 +269,32 @@ def excluir(
     return agendamento
 
 
+def futuros_do_paciente(
+    sessao: Session, *, clinica_id: int, paciente_id: int, desde: date
+) -> list[Agendamento]:
+    """Os horarios de `desde` em diante desta pessoa, os vivos.
+
+    Serve a quem vai excluir o cadastro: horario futuro de cadastro excluido
+    ocupa vaga na grade e ainda dispara lembrete no WhatsApp — a pessoa recebe
+    mensagem de uma consulta que ninguem espera.
+
+    So daqui para frente. O passado da agenda e historico: aquilo aconteceu, e
+    apagar nao desfaz.
+    """
+    return list(
+        sessao.scalars(
+            select(Agendamento)
+            .where(
+                Agendamento.clinica_id == clinica_id,
+                Agendamento.paciente_id == paciente_id,
+                Agendamento.dia >= desde,
+                Agendamento.excluido_em.is_(None),
+            )
+            .order_by(Agendamento.dia, Agendamento.inicio, Agendamento.id)
+        )
+    )
+
+
 def conflitos_de(sessao: Session, *, agendamento: Agendamento) -> list[Agendamento]:
     """Quem mais ocupa esta faixa no mesmo dia.
 

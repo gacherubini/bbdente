@@ -703,6 +703,111 @@ def contatos_de(
     }
 
 
+@dataclass(frozen=True)
+class Vinculos:
+    """O que existe pendurado num cadastro. Alimenta o aviso da exclusao.
+
+    Nao serve para bloquear: quem exclui esta com a ficha na frente e sabe se
+    aquilo e uma pessoa ou a terceira copia dela. Serve para a decisao ser
+    informada — "esta tem 12 tratamentos" e "esta esta vazia" nao sao o mesmo
+    clique.
+    """
+
+    tratamentos: int
+    agendamentos: int
+    parcelas_em_aberto: int
+
+    @property
+    def tem_historico(self) -> bool:
+        return bool(self.tratamentos or self.agendamentos or self.parcelas_em_aberto)
+
+
+def vinculos_de(sessao: Session, *, clinica_id: int, paciente_id: int) -> Vinculos:
+    """Conta, pela service de cada modulo, o que esta pendurado no cadastro.
+
+    Import aqui dentro, nao no topo, pelo mesmo motivo de `contagens`: os tres
+    modulos importam `pacientes.service`, e no topo isto seria ciclo de import.
+    Sao tres agregacoes — nenhuma delas carrega historico para medi-lo.
+    """
+    from app.agenda.service import futuros_do_paciente
+    from app.clinico.service import contar_lancamentos_do_paciente
+    from app.financeiro.service import contar_em_aberto_do_paciente
+
+    return Vinculos(
+        tratamentos=contar_lancamentos_do_paciente(
+            sessao, clinica_id=clinica_id, paciente_id=paciente_id
+        ),
+        agendamentos=len(
+            futuros_do_paciente(
+                sessao,
+                clinica_id=clinica_id,
+                paciente_id=paciente_id,
+                desde=date.today(),
+            )
+        ),
+        parcelas_em_aberto=contar_em_aberto_do_paciente(
+            sessao, clinica_id=clinica_id, paciente_id=paciente_id
+        ),
+    )
+
+
+def excluir(
+    sessao: Session, *, clinica_id: int, usuario_id: int | None, paciente_id: int
+) -> Paciente:
+    """Tira o cadastro da lista. Exclusao logica, como todo o resto do sistema.
+
+    Nasceu de um problema real: o banco de producao ficou com quatro cadastros
+    da mesma pessoa porque a tela dava erro no redirect depois de gravar, e quem
+    cadastrava achava que nao tinha salvo. Sem isto, a duplicata fica para
+    sempre.
+
+    **A linha nao sai do banco** (regra 1 do AGENTS.md): guarda minima de 10
+    anos do CFO, e dado de saude e dado pessoal sensivel na LGPD. O que muda e
+    so o `excluido_em`, e todo leitor da lista ja filtra por ele.
+
+    **O nome continua legivel para quem ja o citava.** `nomes_de` e
+    `contatos_de` nao filtram `excluido_em` de proposito: a lista de cobranca de
+    2019 e o cartao da agenda de tres anos atras nao podem virar linha anonima
+    porque alguem excluiu um cadastro hoje.
+
+    Nao mexe na agenda. Derrubar o horario futuro e decisao de quem chama, e
+    mora na rota — `agenda.service` importa este modulo, e chamar a volta daqui
+    seria ciclo de import de verdade. Mesma razao do `vincular_paciente`.
+    """
+    paciente = obter(sessao, clinica_id=clinica_id, paciente_id=paciente_id)
+    if paciente is None:
+        # Ja excluido cai aqui tambem: `obter` filtra `excluido_em`. Excluir
+        # duas vezes nao reescreve a data da primeira.
+        raise LookupError("paciente nao encontrado")
+
+    antes = {
+        "nome": paciente.nome,
+        "codigo_legado": paciente.codigo_legado,
+        "nascimento": (
+            paciente.nascimento.isoformat() if paciente.nascimento else None
+        ),
+        "cpf": paciente.cpf,
+        "convenio_id": paciente.convenio_id,
+        "telefone": next(
+            (formatar(t.numero) for t in paciente.telefones if t.principal), None
+        ),
+    }
+
+    paciente.excluido_em = datetime.now(UTC)
+    sessao.flush()
+
+    registrar(
+        sessao,
+        clinica_id=clinica_id,
+        usuario_id=usuario_id,
+        acao="EXCLUIR",
+        entidade="paciente",
+        entidade_id=paciente.id,
+        antes=antes,
+    )
+    return paciente
+
+
 def definir_consentimento(
     sessao: Session,
     *,

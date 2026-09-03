@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block titulo %}Excluir {{ paciente.nome }} — BDDente{% endblock %}
+{% block conteudo %}
+<h1>Excluir cadastro</h1>
+<p class="legenda-topo">
+  {{ paciente.codigo_legado or 'sem código do Dentalis' }} ·
+  <a href="/pacientes/{{ paciente.id }}/editar">voltar para a ficha</a>
+</p>
+
+<div class="cartao-form">
+  <p class="excluir-nome">{{ paciente.nome }}</p>
+
+  {% if avisos %}
+    <p class="painel-erro">
+      Esta ficha tem {{ avisos | join(', ') }}.
+    </p>
+    {% if vinculos.agendamentos %}
+      <p class="painel-dica">
+        {% if vinculos.agendamentos == 1 %}
+          O horário marcado será desmarcado junto, e o lembrete de WhatsApp dele
+          não vai sair.
+        {% else %}
+          Os {{ vinculos.agendamentos }} horários marcados serão desmarcados
+          junto, e os lembretes de WhatsApp deles não vão sair.
+        {% endif %}
+      </p>
+    {% endif %}
+  {% else %}
+    <p class="painel-dica">
+      Ficha sem tratamento, sem horário marcado e sem parcela em aberto.
+    </p>
+  {% endif %}
+
+  {# O que a exclusao NAO faz e o que tranquiliza quem esta com o dedo no botao —
+     dizer so "tem certeza?" faz a pessoa parar e ir perguntar para alguem. Mas
+     vai em texto miudo, nao em painel: com o mesmo peso do aviso vermelho, os
+     dois deixam de ter peso nenhum e a tela vira tres faixas coloridas. #}
+  <p class="nota-exclusao">
+    Nada é apagado do banco: a ficha sai da lista e das buscas, e o nome continua
+    aparecendo no histórico da agenda e na lista de cobrança. Dá para desfazer.
+  </p>
+
+  <div class="acoes-form">
+    <a class="botao-secundario" href="/pacientes/{{ paciente.id }}/editar">
+      Cancelar
+    </a>
+    <form method="post" action="/pacientes/{{ paciente.id }}/excluir">
+      <button type="submit" class="destrutivo">Excluir cadastro</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

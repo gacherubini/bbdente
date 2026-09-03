@@ -19,8 +19,10 @@ from app.pacientes.service import (
     contagens,
     criar,
     definir_consentimento,
+    excluir,
     obter,
     semelhantes,
+    vinculos_de,
 )
 from app.pacientes.telefone import formatar
 from app.shared.db import obter_sessao
@@ -404,3 +406,107 @@ def responder_whatsapp(
     return RedirectResponse(
         _destino_interno(voltar, f"/pacientes/{paciente_id}/editar"), status_code=303
     )
+
+
+def _quantos(quantidade: int, singular: str, plural: str) -> str | None:
+    """'1 tratamento', '12 tratamentos', nada quando e zero."""
+    if not quantidade:
+        return None
+    return f"{quantidade} {singular if quantidade == 1 else plural}"
+
+
+def _avisos_de(vinculos) -> list[str]:
+    """O que a pessoa precisa saber ANTES de clicar, em portugues.
+
+    A ordem nao e alfabetica nem por tamanho: e a do peso da decisao. Prontuario
+    primeiro, porque tratamento e o que a clinica existe para guardar; dinheiro
+    por ultimo, porque parcela em aberto continua cobravel depois — a lista de
+    cobranca le o nome por `nomes_de`, que nao filtra excluido.
+    """
+    frases = (
+        _quantos(vinculos.tratamentos, "tratamento", "tratamentos"),
+        _quantos(vinculos.agendamentos, "horário marcado", "horários marcados"),
+        _quantos(
+            vinculos.parcelas_em_aberto, "parcela em aberto", "parcelas em aberto"
+        ),
+    )
+    return [frase for frase in frases if frase]
+
+
+@router.get("/pacientes/{paciente_id}/excluir", response_class=HTMLResponse)
+def confirmar_exclusao(
+    request: Request,
+    paciente_id: int,
+    usuario: Usuario = Depends(usuario_atual),
+    sessao: Session = Depends(obter_sessao),
+):
+    """A tela do aviso. Nao exclui nada — GET nunca escreve.
+
+    Existe como tela, e nao como `confirm()` do navegador, porque a frase que
+    importa tem numeros que so o banco sabe: quem esta prestes a excluir um
+    cadastro com 12 tratamentos precisa ver o 12.
+    """
+    paciente = _obter(sessao, usuario.clinica_id, paciente_id)
+    vinculos = vinculos_de(
+        sessao, clinica_id=usuario.clinica_id, paciente_id=paciente.id
+    )
+    return templates.TemplateResponse(
+        request,
+        "paciente_excluir.html",
+        {
+            "aba": "pacientes",
+            "paciente": paciente,
+            "vinculos": vinculos,
+            "avisos": _avisos_de(vinculos),
+        },
+    )
+
+
+@router.post("/pacientes/{paciente_id}/excluir")
+def excluir_paciente(
+    paciente_id: int,
+    usuario: Usuario = Depends(usuario_atual),
+    sessao: Session = Depends(obter_sessao),
+):
+    """Exclui o cadastro e derruba os horarios que ele ainda ocupa.
+
+    As duas escritas moram aqui, e nao em `pacientes.service`, porque
+    `agenda.service` importa `pacientes.service`: chamar a volta de dentro da
+    service seria ciclo de import de verdade. Mesma razao — e mesmo lugar — do
+    `vincular_paciente`, que `clinico/api.py` chama e `clinico/service.py` nao.
+
+    A ordem importa. O cadastro sai primeiro: se a agenda falhar no meio, o
+    `rollback` desfaz as duas, e ninguem fica com cadastro excluido e horario
+    de pe. Um commit so.
+    """
+    # Import local: `agenda.service` importa `pacientes.service`, e no topo
+    # deste arquivo nao ha ciclo — mas mante-lo aqui deixa a direcao obvia para
+    # quem ler a rota.
+    from app.agenda import service as agenda
+
+    paciente = _obter(sessao, usuario.clinica_id, paciente_id)
+
+    excluir(
+        sessao,
+        clinica_id=usuario.clinica_id,
+        usuario_id=usuario.id,
+        paciente_id=paciente.id,
+    )
+
+    # So daqui para frente. O passado da agenda e historico — apagar nao desfaz
+    # a consulta que aconteceu, so esconde que ela aconteceu.
+    for agendamento in agenda.futuros_do_paciente(
+        sessao,
+        clinica_id=usuario.clinica_id,
+        paciente_id=paciente.id,
+        desde=date.today(),
+    ):
+        agenda.excluir(
+            sessao,
+            clinica_id=usuario.clinica_id,
+            usuario_id=usuario.id,
+            agendamento_id=agendamento.id,
+        )
+
+    sessao.commit()
+    return RedirectResponse("/pacientes", status_code=303)

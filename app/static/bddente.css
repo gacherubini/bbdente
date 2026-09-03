@@ -1507,3 +1507,48 @@ td:hover > .agenda-vago { color: var(--roxo-brd); background: var(--roxo-cl); }
 }
 .aviso-forte { color: #B91C1C; font-weight: 600; }
 .rotulo-fraco { color: var(--texto-fraco); font-size: 12px; }
+
+/* --- excluir cadastro de paciente --- */
+/* Vermelho cheio, e nao o roxo do "Salvar": a cor e o ultimo aviso antes do
+   clique, e um botao destrutivo que se parece com o botao comum e um botao
+   apertado por engano. Mesmo par de vermelhos do resto do sistema. */
+button.destrutivo {
+  background: #B91C1C;
+  color: #fff;
+  border: 0;
+  border-radius: var(--raio);
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+button.destrutivo:hover { background: #991B1B; }
+.acoes-form form { margin: 0; }
+
+.excluir-nome {
+  font-size: 17px;
+  font-weight: 650;
+  margin: 0 0 14px;
+}
+
+/* O caminho para a exclusao fica no rodape da ficha, separado do "Salvar" por
+   uma borda: quem edita nome e telefone nao pode tropecar nele. Discreto no
+   repouso, vermelho quando a intencao ja e essa. */
+.rodape-perigoso {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--borda);
+}
+a.link-excluir {
+  color: var(--texto-fraco);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+a.link-excluir:hover { color: #B91C1C; }
+.nota-exclusao {
+  color: var(--texto-fraco);
+  font-size: 12.5px;
+  line-height: 1.55;
+  margin: 14px 2px 0;
+}
